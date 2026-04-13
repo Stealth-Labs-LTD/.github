@@ -71,11 +71,16 @@ jobs:
       - name: Deploy to Cloud Run
         id: deploy
         run: |
+          ENV_VARS=""
+          if [ -n "${{ secrets.OPENROUTER_API_KEY }}" ]; then
+            ENV_VARS="--set-env-vars=OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}"
+          fi
           URL=$(gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image=${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
             --region=${{ inputs.region }} \
             --port=${{ inputs.port }} \
             --platform=managed \
+            $ENV_VARS \
             ${{ inputs.allow_unauthenticated && '--allow-unauthenticated' || '--no-allow-unauthenticated' }} \
             --project=${{ env.PROJECT_ID }} \
             --format='value(status.url)')
