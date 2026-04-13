@@ -66,11 +66,25 @@ jobs:
           docker push ${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:latest
 
       - name: Deploy to Cloud Run
+        id: deploy
         run: |
-          gcloud run deploy ${{ env.SERVICE_NAME }} \
+          URL=$(gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image=${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
             --region=${{ inputs.region }} \
             --port=${{ inputs.port }} \
             --platform=managed \
             ${{ inputs.allow_unauthenticated && '--allow-unauthenticated' || '--no-allow-unauthenticated' }} \
-            --project=${{ env.PROJECT_ID }}
+            --project=${{ env.PROJECT_ID }} \
+            --format='value(status.url)')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Job summary
+        run: |
+          echo "## Deployed to Cloud Run" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| | |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Service** | \`${{ env.SERVICE_NAME }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **URL** | ${{ steps.deploy.outputs.url }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Region** | \`${{ inputs.region }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Image** | \`${{ env.SERVICE_NAME }}:${{ github.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
