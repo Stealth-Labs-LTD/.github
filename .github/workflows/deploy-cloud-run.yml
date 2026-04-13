@@ -1,0 +1,73 @@
+name: Deploy to Cloud Run
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        description: "Cloud Run service name"
+        required: true
+        type: string
+      region:
+        description: "GCP region"
+        required: false
+        type: string
+        default: "europe-west2"
+      dockerfile:
+        description: "Path to Dockerfile"
+        required: false
+        type: string
+        default: "./Dockerfile"
+      port:
+        description: "Container port"
+        required: false
+        type: string
+        default: "8080"
+      allow_unauthenticated:
+        description: "Allow unauthenticated access"
+        required: false
+        type: boolean
+        default: true
+
+env:
+  PROJECT_ID: stealthlabs-dev
+  REGISTRY: europe-west2-docker.pkg.dev/stealthlabs-dev/services
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker europe-west2-docker.pkg.dev --quiet
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ env.REGISTRY }}/${{ inputs.service_name }}:${{ github.sha }} \
+            -t ${{ env.REGISTRY }}/${{ inputs.service_name }}:latest \
+            -f ${{ inputs.dockerfile }} .
+
+      - name: Push Docker image
+        run: |
+          docker push ${{ env.REGISTRY }}/${{ inputs.service_name }}:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/${{ inputs.service_name }}:latest
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${{ inputs.service_name }} \
+            --image=${{ env.REGISTRY }}/${{ inputs.service_name }}:${{ github.sha }} \
+            --region=${{ inputs.region }} \
+            --port=${{ inputs.port }} \
+            --platform=managed \
+            ${{ inputs.allow_unauthenticated && '--allow-unauthenticated' || '--no-allow-unauthenticated' }} \
+            --project=${{ env.PROJECT_ID }}
