@@ -28,6 +28,11 @@ on:
         required: false
         type: boolean
         default: true
+    secrets:
+      GCP_SA_KEY:
+        required: true
+      OPENROUTER_API_KEY:
+        required: false
 
 env:
   PROJECT_ID: stealthlabs-dev
@@ -57,13 +62,11 @@ jobs:
         run: |
           docker build \
             -t ${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
-            -t ${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:latest \
             -f ${{ inputs.dockerfile }} .
 
       - name: Push Docker image
         run: |
           docker push ${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
-          docker push ${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:latest
 
       - name: Deploy to Cloud Run
         id: deploy
