@@ -23,11 +23,11 @@ on:
         required: false
         type: string
         default: "8080"
-      allow_unauthenticated:
-        description: "Allow unauthenticated access"
+      public:
+        description: "Disable IAP and make service publicly accessible (for customer-facing apps)"
         required: false
         type: boolean
-        default: true
+        default: false
     secrets:
       GCP_SA_KEY:
         required: true
@@ -75,16 +75,29 @@ jobs:
           if [ -n "${{ secrets.OPENROUTER_API_KEY }}" ]; then
             ENV_VARS="--set-env-vars=OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}"
           fi
+          IAP_FLAG="${{ inputs.public && '--no-iap' || '--iap' }}"
+          AUTH_FLAG="${{ inputs.public && '--allow-unauthenticated' || '--no-allow-unauthenticated' }}"
           URL=$(gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image=${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
             --region=${{ inputs.region }} \
             --port=${{ inputs.port }} \
             --platform=managed \
             $ENV_VARS \
-            ${{ inputs.allow_unauthenticated && '--allow-unauthenticated' || '--no-allow-unauthenticated' }} \
+            $IAP_FLAG \
+            $AUTH_FLAG \
             --project=${{ env.PROJECT_ID }} \
             --format='value(status.url)')
           echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Grant IAP service agent access
+        if: ${{ !inputs.public }}
+        run: |
+          PROJECT_NUMBER=$(gcloud projects describe ${{ env.PROJECT_ID }} --format='value(projectNumber)')
+          gcloud run services add-iam-policy-binding ${{ env.SERVICE_NAME }} \
+            --region=${{ inputs.region }} \
+            --project=${{ env.PROJECT_ID }} \
+            --member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-iap.iam.gserviceaccount.com" \
+            --role=roles/run.invoker 2>/dev/null || true
 
       - name: Job summary
         run: |
@@ -96,3 +109,4 @@ jobs:
           echo "| **URL** | ${{ steps.deploy.outputs.url }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **Region** | \`${{ inputs.region }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **Image** | \`${{ env.SERVICE_NAME }}:${{ github.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Auth** | ${{ inputs.public && 'Public (no IAP)' || 'IAP protected (team only)' }} |" >> "$GITHUB_STEP_SUMMARY"
