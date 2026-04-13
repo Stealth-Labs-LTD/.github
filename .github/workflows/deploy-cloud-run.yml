@@ -4,9 +4,10 @@ on:
   workflow_call:
     inputs:
       service_name:
-        description: "Cloud Run service name"
-        required: true
+        description: "Cloud Run service name (defaults to repo name)"
+        required: false
         type: string
+        default: ""
       region:
         description: "GCP region"
         required: false
@@ -35,6 +36,8 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      SERVICE_NAME: ${{ inputs.service_name || github.event.repository.name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,19 +56,19 @@ jobs:
       - name: Build Docker image
         run: |
           docker build \
-            -t ${{ env.REGISTRY }}/${{ inputs.service_name }}:${{ github.sha }} \
-            -t ${{ env.REGISTRY }}/${{ inputs.service_name }}:latest \
+            -t ${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
+            -t ${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:latest \
             -f ${{ inputs.dockerfile }} .
 
       - name: Push Docker image
         run: |
-          docker push ${{ env.REGISTRY }}/${{ inputs.service_name }}:${{ github.sha }}
-          docker push ${{ env.REGISTRY }}/${{ inputs.service_name }}:latest
+          docker push ${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:latest
 
       - name: Deploy to Cloud Run
         run: |
-          gcloud run deploy ${{ inputs.service_name }} \
-            --image=${{ env.REGISTRY }}/${{ inputs.service_name }}:${{ github.sha }} \
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image=${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
             --region=${{ inputs.region }} \
             --port=${{ inputs.port }} \
             --platform=managed \
