@@ -1,0 +1,14 @@
+name: Cleanup preview
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  cleanup:
+    uses: Stealth-Labs-LTD/.github/.github/workflows/cleanup-cloud-run.yml@main
+    with:
+      service_name: ${{ github.event.repository.name }}-pr-${{ github.event.pull_request.number }}
+    secrets:
+      GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}

@@ -1,0 +1,6 @@
+{
+  "name": "PR checks (Python)",
+  "description": "Lint, test, security scans, and ephemeral Cloud Run preview for Python projects",
+  "iconName": "python",
+  "categories": ["Python", "CI"]
+}

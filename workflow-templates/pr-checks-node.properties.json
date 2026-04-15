@@ -1,0 +1,6 @@
+{
+  "name": "PR checks (Node/TypeScript)",
+  "description": "Lint, typecheck, test, security scans, and ephemeral Cloud Run preview for Node/TypeScript projects",
+  "iconName": "nodejs",
+  "categories": ["Node", "TypeScript", "CI"]
+}

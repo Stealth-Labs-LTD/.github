@@ -1,0 +1,5 @@
+{
+  "name": "PR cleanup",
+  "description": "Tears down ephemeral Cloud Run preview when a PR is closed",
+  "categories": ["CI"]
+}

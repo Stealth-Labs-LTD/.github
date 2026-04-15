@@ -1,0 +1,29 @@
+name: PR checks
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    uses: Stealth-Labs-LTD/.github/.github/workflows/security-scans.yml@main
+    with:
+      semgrep-config: p/python p/security-audit p/secrets
+
+  lint-and-test:
+    uses: Stealth-Labs-LTD/.github/.github/workflows/lint-and-test.yml@main
+    with:
+      language: python
+      language-version: "3.12"
+
+  preview:
+    needs: [lint-and-test]
+    uses: Stealth-Labs-LTD/.github/.github/workflows/deploy-cloud-run.yml@main
+    with:
+      service_name: ${{ github.event.repository.name }}-pr-${{ github.event.pull_request.number }}
+      public: true
+    secrets:
+      GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}

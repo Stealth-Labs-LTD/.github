@@ -21,6 +21,11 @@ on:
         required: false
         type: string
         default: ""
+      typecheck-command:
+        description: "Override the default typecheck command (Node default: npx tsc --noEmit, Python: skipped)"
+        required: false
+        type: string
+        default: ""
       test-command:
         description: "Override the default test command"
         required: false
@@ -70,6 +75,14 @@ jobs:
       - name: Lint (custom)
         if: inputs.lint-command != ''
         run: ${{ inputs.lint-command }}
+
+      - name: Typecheck (Node)
+        if: inputs.language == 'node' && inputs.typecheck-command == ''
+        run: npx tsc --noEmit
+
+      - name: Typecheck (custom)
+        if: inputs.typecheck-command != ''
+        run: ${{ inputs.typecheck-command }}
 
       - name: Test (Python)
         if: inputs.language == 'python' && inputs.test-command == ''
