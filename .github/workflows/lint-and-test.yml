@@ -1,0 +1,84 @@
+name: Lint and test
+
+on:
+  workflow_call:
+    inputs:
+      language:
+        description: "Project language: python or node"
+        required: true
+        type: string
+      language-version:
+        description: "Runtime version (e.g. '3.12' for Python, '22' for Node)"
+        required: true
+        type: string
+      install-command:
+        description: "Override the default install command"
+        required: false
+        type: string
+        default: ""
+      lint-command:
+        description: "Override the default lint command"
+        required: false
+        type: string
+        default: ""
+      test-command:
+        description: "Override the default test command"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    name: lint-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        if: inputs.language == 'python'
+        with:
+          python-version: ${{ inputs.language-version }}
+
+      - uses: actions/setup-node@v4
+        if: inputs.language == 'node'
+        with:
+          node-version: ${{ inputs.language-version }}
+
+      - name: Install (Python)
+        if: inputs.language == 'python' && inputs.install-command == ''
+        run: pip install -r requirements-dev.txt
+
+      - name: Install (Node)
+        if: inputs.language == 'node' && inputs.install-command == ''
+        run: npm ci
+
+      - name: Install (custom)
+        if: inputs.install-command != ''
+        run: ${{ inputs.install-command }}
+
+      - name: Lint (Python)
+        if: inputs.language == 'python' && inputs.lint-command == ''
+        run: ruff check .
+
+      - name: Lint (Node)
+        if: inputs.language == 'node' && inputs.lint-command == ''
+        run: npx eslint .
+
+      - name: Lint (custom)
+        if: inputs.lint-command != ''
+        run: ${{ inputs.lint-command }}
+
+      - name: Test (Python)
+        if: inputs.language == 'python' && inputs.test-command == ''
+        run: pytest --tb=short -q
+
+      - name: Test (Node)
+        if: inputs.language == 'node' && inputs.test-command == ''
+        run: npm test
+
+      - name: Test (custom)
+        if: inputs.test-command != ''
+        run: ${{ inputs.test-command }}

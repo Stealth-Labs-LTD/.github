@@ -1,0 +1,88 @@
+name: Security scans
+
+on:
+  workflow_call:
+    inputs:
+      semgrep-config:
+        description: "Semgrep rule sets (space-separated)"
+        required: false
+        type: string
+        default: p/security-audit p/secrets
+      trivy-severity:
+        description: "Trivy severity threshold"
+        required: false
+        type: string
+        default: HIGH,CRITICAL
+      infra-path:
+        description: "Path to infrastructure config for Trivy config scan"
+        required: false
+        type: string
+        default: ./infra
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    name: semgrep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: semgrep/semgrep-action@v1
+        with:
+          config: ${{ inputs.semgrep-config }}
+
+  trufflehog:
+    name: trufflehog
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --only-verified
+
+  trivy-scan:
+    name: trivy-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy dependency scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          severity: ${{ inputs.trivy-severity }}
+          exit-code: 1
+
+  trivy-config:
+    name: trivy-config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy infra scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          scan-ref: ${{ inputs.infra-path }}
+          exit-code: 1
+        if: hashFiles('infra/**') != ''
+
+  trivy-image:
+    name: trivy-image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lowercase image name
+        run: echo "IMAGE_NAME=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+        if: hashFiles('Dockerfile') != ''
+      - name: Build image
+        run: docker build -t ${{ env.IMAGE_NAME }}:${{ github.sha }} .
+        if: hashFiles('Dockerfile') != ''
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          severity: ${{ inputs.trivy-severity }}
+          exit-code: 1
+        if: hashFiles('Dockerfile') != ''
