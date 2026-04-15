@@ -86,7 +86,14 @@ jobs:
 
       - name: Test (Python)
         if: inputs.language == 'python' && inputs.test-command == ''
-        run: pytest --tb=short -q
+        run: |
+          EXIT_CODE=0
+          pytest --tb=short -q || EXIT_CODE=$?
+          if [ $EXIT_CODE -eq 5 ]; then
+            echo "::warning::No tests found — add tests to your project"
+            exit 0
+          fi
+          exit $EXIT_CODE
 
       - name: Test (Node)
         if: inputs.language == 'node' && inputs.test-command == ''
