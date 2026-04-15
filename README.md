@@ -56,6 +56,8 @@ jobs:
 | `typecheck-command` | auto | Override: skipped (Python) or `npx tsc --noEmit` (Node) |
 | `test-command` | auto | Override: `pytest --tb=short -q` (Python) or `npm test` (Node) |
 
+**Note:** If pytest finds no tests (exit code 5), the job warns but still passes. This allows new projects to pass CI before tests are written.
+
 ### deploy-cloud-run.yml
 
 Builds and deploys a container to Google Cloud Run. Used for both ephemeral PR previews and persistent release demos.
@@ -63,6 +65,8 @@ Builds and deploys a container to Google Cloud Run. Used for both ephemeral PR p
 ```yaml
 jobs:
   preview:
+    needs: [lint-and-test]
+    continue-on-error: true  # preview is best-effort, don't block the PR
     uses: Stealth-Labs-LTD/.github/.github/workflows/deploy-cloud-run.yml@main
     with:
       service_name: my-service-pr-42  # omit for default (repo name)
@@ -70,6 +74,8 @@ jobs:
     secrets:
       GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
 ```
+
+**Note:** Preview deploys should use `continue-on-error: true` so they don't block PRs. Security scans and lint-and-test are the actual merge gates. The deploy URL appears in the GitHub Actions job summary.
 
 **Inputs:**
 | Input | Default | Description |
@@ -158,7 +164,9 @@ For repos not created from a template:
 2. Or copy the examples from the reusable workflow docs above into `.github/workflows/`
 3. Add a `pr-cleanup.yml` if using PR preview deploys
 
-The repo also needs the `GCP_SA_KEY` secret set (org-level or per-repo) for Cloud Run deploys.
+The repo needs access to the `GCP_SA_KEY` secret for Cloud Run deploys — this is set at org level so all repos inherit it automatically.
+
+**Dockerfile note:** Cloud Run defaults to port 8080 via the `PORT` env var. Make sure your Dockerfile exposes 8080 (or reads `PORT` from the environment) and your app listens on it.
 
 ## Engineering principles
 
