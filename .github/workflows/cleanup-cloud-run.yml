@@ -1,0 +1,57 @@
+name: Cleanup Cloud Run service
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        description: "Cloud Run service name to delete"
+        required: true
+        type: string
+      region:
+        description: "GCP region"
+        required: false
+        type: string
+        default: "europe-west2"
+    secrets:
+      GCP_SA_KEY:
+        required: true
+
+env:
+  PROJECT_ID: stealthlabs-dev
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Delete Cloud Run service
+        run: |
+          gcloud run services delete ${{ inputs.service_name }} \
+            --region=${{ inputs.region }} \
+            --project=${{ env.PROJECT_ID }} \
+            --quiet \
+          2>/dev/null || echo "Service ${{ inputs.service_name }} not found, skipping"
+
+      - name: Delete image from Artifact Registry
+        run: |
+          IMAGE="europe-west2-docker.pkg.dev/${{ env.PROJECT_ID }}/services/${{ inputs.service_name }}"
+          gcloud artifacts docker images delete "$IMAGE" \
+            --project=${{ env.PROJECT_ID }} \
+            --quiet --delete-tags \
+          2>/dev/null || echo "Image not found, skipping"
+
+      - name: Job summary
+        run: |
+          echo "## Cleaned up Cloud Run preview" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| | |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Service** | \`${{ inputs.service_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Region** | \`${{ inputs.region }}\` |" >> "$GITHUB_STEP_SUMMARY"
