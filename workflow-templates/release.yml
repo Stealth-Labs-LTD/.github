@@ -1,0 +1,21 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  release:
+    uses: Stealth-Labs-LTD/.github/.github/workflows/release.yml@main
+
+  deploy:
+    needs: [release]
+    uses: Stealth-Labs-LTD/.github/.github/workflows/deploy-cloud-run.yml@main
+    secrets:
+      GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}

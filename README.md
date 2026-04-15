@@ -106,6 +106,29 @@ jobs:
 | `service_name` | (required) | Cloud Run service name to delete |
 | `region` | `europe-west2` | GCP region |
 
+### release.yml
+
+Builds a container image, scans with Trivy, pushes to GHCR with semver + SHA tags, signs with Cosign, generates an SBOM with Syft, and attaches it to the image. Language-agnostic — uses whatever Dockerfile is in the repo.
+
+```yaml
+jobs:
+  release:
+    uses: Stealth-Labs-LTD/.github/.github/workflows/release.yml@main
+  deploy:
+    needs: [release]
+    uses: Stealth-Labs-LTD/.github/.github/workflows/deploy-cloud-run.yml@main
+    secrets:
+      GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+```
+
+**Inputs:**
+| Input | Default | Description |
+|-------|---------|-------------|
+| `trivy-severity` | `HIGH,CRITICAL` | Trivy severity threshold |
+| `dockerfile` | `./Dockerfile` | Path to Dockerfile |
+
+The caller must set `permissions: { contents: read, packages: write, id-token: write }` for GHCR push and Cosign signing.
+
 ## Workflow templates
 
 Starter workflows available in the GitHub UI under **Actions > New workflow** for any repo in the org. These are copied into the repo (not referenced), so they serve as a starting point.
@@ -115,6 +138,7 @@ Starter workflows available in the GitHub UI under **Actions > New workflow** fo
 | PR checks (Python) | Security scans + Ruff/pytest + Cloud Run preview |
 | PR checks (Node/TypeScript) | Security scans + ESLint/tsc/npm test + Cloud Run preview |
 | PR cleanup | Tears down ephemeral Cloud Run service on PR close |
+| Release | Build, scan, sign, push to GHCR, then deploy to Cloud Run |
 
 ## Starting a new project
 

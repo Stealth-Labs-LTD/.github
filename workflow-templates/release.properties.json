@@ -1,0 +1,5 @@
+{
+  "name": "Release",
+  "description": "Build, scan, sign, push to GHCR, then deploy to Cloud Run",
+  "categories": ["CI"]
+}
