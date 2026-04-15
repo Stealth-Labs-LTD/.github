@@ -118,7 +118,7 @@ Starter workflows available in the GitHub UI under **Actions > New workflow** fo
 
 ## Typical repo setup
 
-If you're creating a new project from `template-repo` or `template-repo-node`, the caller workflows are already included — no action needed.
+If you're creating a new project from `template-repo-python` or `template-repo-node`, the caller workflows are already included — no action needed.
 
 For an existing repo that needs to adopt the shared workflows, either:
 1. Go to **Actions > New workflow** and pick the relevant starter template
