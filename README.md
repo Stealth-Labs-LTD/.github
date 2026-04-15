@@ -116,13 +116,23 @@ Starter workflows available in the GitHub UI under **Actions > New workflow** fo
 | PR checks (Node/TypeScript) | Security scans + ESLint/tsc/npm test + Cloud Run preview |
 | PR cleanup | Tears down ephemeral Cloud Run service on PR close |
 
-## Typical repo setup
+## Starting a new project
 
-If you're creating a new project from `template-repo-python` or `template-repo-node`, the caller workflows are already included — no action needed.
+Use one of the template repos — they come with caller workflows, local tooling, Dockerfile, Makefile, CLAUDE.md, and editor config pre-configured.
 
-For an existing repo that needs to adopt the shared workflows, either:
-1. Go to **Actions > New workflow** and pick the relevant starter template
+| Template | Language | Includes |
+|----------|----------|----------|
+| [`template-repo-python`](https://github.com/Stealth-Labs-LTD/template-repo-python) | Python | Ruff, pytest, pre-commit hooks, Python Alpine Dockerfile |
+| `template-repo-node` (coming soon) | Node/TypeScript | ESLint, Vitest, Husky + lint-staged, Node Alpine Dockerfile |
+
+Create a new repo from the template, replace the placeholders in CLAUDE.md, run `make setup`, and start coding. The caller workflows and security scans work out of the box.
+
+## Adopting shared workflows in an existing repo
+
+For repos not created from a template:
+1. Go to **Actions > New workflow** and pick the relevant starter template (Python or Node)
 2. Or copy the examples from the reusable workflow docs above into `.github/workflows/`
+3. Add a `pr-cleanup.yml` if using PR preview deploys
 
 The repo also needs the `GCP_SA_KEY` secret set (org-level or per-repo) for Cloud Run deploys.
 
