@@ -167,7 +167,3 @@ For repos not created from a template:
 The repo needs access to the `GCP_SA_KEY` secret for Cloud Run deploys — this is set at org level so all repos inherit it automatically.
 
 **Dockerfile note:** Cloud Run defaults to port 8080 via the `PORT` env var. Make sure your Dockerfile exposes 8080 (or reads `PORT` from the environment) and your app listens on it.
-
-## Engineering principles
-
-All workflows enforce the standards defined in our [engineering principles](https://www.notion.so/3309b7a2846e80efb191d027b44914b3) and [DevSecOps standards](https://www.notion.so/33c9b7a2846e80279eb1ed1bba220820).
