@@ -24,6 +24,5 @@ jobs:
     uses: Stealth-Labs-LTD/.github/.github/workflows/deploy-cloud-run.yml@main
     with:
       service_name: ${{ github.event.repository.name }}-pr-${{ github.event.pull_request.number }}
-      public: true
     secrets:
       GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
