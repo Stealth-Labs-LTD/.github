@@ -28,10 +28,18 @@ on:
         required: false
         type: boolean
         default: false
+      app_secret_prefix:
+        description: "Prefix for caller secrets to auto-inject as Cloud Run env vars. The prefix is stripped from the var name (APP_ACCESS_SECRET -> ACCESS_SECRET)."
+        required: false
+        type: string
+        default: "APP_"
     secrets:
       GCP_SA_KEY:
         required: true
       OPENROUTER_API_KEY:
+        required: false
+      all_secrets:
+        description: "Pass the caller's toJSON(secrets) here to auto-inject app_secret_prefix-prefixed secrets as Cloud Run env vars. Omit for unchanged behaviour."
         required: false
 
 env:
@@ -70,11 +78,36 @@ jobs:
 
       - name: Deploy to Cloud Run
         id: deploy
+        env:
+          ALL_SECRETS: ${{ secrets.all_secrets }}
+          APP_SECRET_PREFIX: ${{ inputs.app_secret_prefix }}
         run: |
-          ENV_VARS=""
+          # Build env var list: OpenRouter first (existing behaviour), then any
+          # APP_*-prefixed caller secrets (opt-in via the all_secrets input).
+          # Uses ^|^ as the --set-env-vars delimiter so values can contain commas.
+          ENV_VARS_LIST=""
           if [ -n "${{ secrets.OPENROUTER_API_KEY }}" ]; then
-            ENV_VARS="--set-env-vars=OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}"
+            ENV_VARS_LIST="OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}"
           fi
+
+          if [ -n "$ALL_SECRETS" ]; then
+            APP_VARS=$(echo "$ALL_SECRETS" | jq -r --arg p "$APP_SECRET_PREFIX" '
+              to_entries
+              | map(select(.key | startswith($p)))
+              | map("\(.key | ltrimstr($p))=\(.value)")
+              | join("|")
+            ')
+            if [ -n "$APP_VARS" ]; then
+              ENV_VARS_LIST="${ENV_VARS_LIST:+$ENV_VARS_LIST|}$APP_VARS"
+            fi
+          fi
+
+          if [ -n "$ENV_VARS_LIST" ]; then
+            ENV_VARS="--set-env-vars=^|^$ENV_VARS_LIST"
+          else
+            ENV_VARS=""
+          fi
+
           IAP_FLAG="${{ inputs.public && '--no-iap' || '--iap' }}"
           AUTH_FLAG="${{ inputs.public && '--allow-unauthenticated' || '--no-allow-unauthenticated' }}"
           URL=$(gcloud run deploy ${{ env.SERVICE_NAME }} \
