@@ -66,16 +66,18 @@ Builds and deploys a container to Google Cloud Run. Used for both ephemeral PR p
 jobs:
   preview:
     needs: [lint-and-test]
-    continue-on-error: true  # preview is best-effort, don't block the PR
     uses: Stealth-Labs-LTD/.github/.github/workflows/deploy-cloud-run.yml@main
     with:
       service_name: my-service-pr-42  # omit for default (repo name)
-      public: true                     # disable IAP for preview access
     secrets:
       GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      # Exposes the caller's repo secrets so APP_-prefixed ones get auto-injected
+      # as Cloud Run env vars. See "App env vars" below.
+      all_secrets: ${{ toJSON(secrets) }}
 ```
 
-**Note:** Preview deploys should use `continue-on-error: true` so they don't block PRs. Security scans and lint-and-test are the actual merge gates. The deploy URL appears in the GitHub Actions job summary.
+**Note:** `continue-on-error: true` is **not** a valid key on jobs that use `uses: <reusable-workflow>` — GitHub rejects the workflow with a parse error. If preview deploys fail, let them fail the PR — that's the signal you want. The deploy URL appears in the GitHub Actions job summary.
 
 **Inputs:**
 | Input | Default | Description |
@@ -84,13 +86,31 @@ jobs:
 | `region` | `europe-west2` | GCP region |
 | `dockerfile` | `./Dockerfile` | Path to Dockerfile |
 | `port` | `8080` | Container port |
-| `public` | `false` | Set `true` to disable IAP (for previews) |
+| `public` | `false` | Set `true` to disable IAP (customer-facing apps). Default is IAP-protected — only `@stealthlabs.uk` Google accounts can access. |
+| `app_secret_prefix` | `APP_` | Repo secrets starting with this prefix are auto-injected as env vars (prefix stripped). |
 
 **Secrets:**
 | Secret | Required | Description |
 |--------|----------|-------------|
-| `GCP_SA_KEY` | Yes | GCP service account key JSON |
-| `OPENROUTER_API_KEY` | No | Passed as env var to Cloud Run if set |
+| `GCP_SA_KEY` | Yes | GCP service account key JSON (inherited from org secrets). |
+| `OPENROUTER_API_KEY` | No | OpenRouter key (inherited from org secrets). Injected as an env var. |
+| `all_secrets` | No | Pass `${{ toJSON(secrets) }}` from the caller to auto-inject `APP_*` repo secrets. |
+
+#### App env vars (no shared-workflow edits needed per service)
+
+Each service has its own env var needs (access codes, feature flags, DB URLs, etc.). Rather than adding every one of them to the shared workflow, store them as **repo-level secrets prefixed with `APP_`**. The shared workflow scans the `all_secrets` bag for matching keys, strips the `APP_` prefix, and injects them:
+
+| Repo secret | Lands on Cloud Run as |
+|---|---|
+| `APP_ACCESS_CODES` | `ACCESS_CODES` |
+| `APP_ACCESS_SECRET` | `ACCESS_SECRET` |
+| `APP_UPSTASH_REDIS_REST_URL` | `UPSTASH_REDIS_REST_URL` |
+| `APP_ANYTHING` | `ANYTHING` |
+
+This way:
+- New env vars require only a `gh secret set APP_X` — no workflow edits
+- Org secrets (`OPENROUTER_API_KEY`, `GCP_SA_KEY`) stay explicit and named
+- `toJSON(secrets)` exposes *every* secret the caller has access to, but only `APP_*` ones are used — so stray org secrets (PAT tokens, etc.) are never silently leaked onto a deployed service
 
 ### cleanup-cloud-run.yml
 
@@ -125,6 +145,8 @@ jobs:
     uses: Stealth-Labs-LTD/.github/.github/workflows/deploy-cloud-run.yml@main
     secrets:
       GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      all_secrets: ${{ toJSON(secrets) }}
 ```
 
 **Inputs:**
@@ -164,6 +186,6 @@ For repos not created from a template:
 2. Or copy the examples from the reusable workflow docs above into `.github/workflows/`
 3. Add a `pr-cleanup.yml` if using PR preview deploys
 
-The repo needs access to the `GCP_SA_KEY` secret for Cloud Run deploys — this is set at org level so all repos inherit it automatically.
+The repo needs access to the `GCP_SA_KEY` and `OPENROUTER_API_KEY` secrets for Cloud Run deploys — both are set at org level so all repos inherit them automatically. Add any service-specific env vars as **repo-level secrets prefixed with `APP_`** (e.g. `APP_ACCESS_SECRET`) and they'll flow into Cloud Run automatically via the `all_secrets` passthrough.
 
 **Dockerfile note:** Cloud Run defaults to port 8080 via the `PORT` env var. Make sure your Dockerfile exposes 8080 (or reads `PORT` from the environment) and your app listens on it.
