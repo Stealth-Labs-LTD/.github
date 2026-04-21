@@ -19,3 +19,6 @@ jobs:
     uses: Stealth-Labs-LTD/.github/.github/workflows/deploy-cloud-run.yml@main
     secrets:
       GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      # Pass the caller's repo secrets so APP_-prefixed ones get auto-injected as Cloud Run env vars.
+      all_secrets: ${{ toJSON(secrets) }}
