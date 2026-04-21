@@ -21,7 +21,6 @@ jobs:
 
   preview:
     needs: [lint-and-test]
-    continue-on-error: true
     uses: Stealth-Labs-LTD/.github/.github/workflows/deploy-cloud-run.yml@main
     with:
       service_name: ${{ github.event.repository.name }}-pr-${{ github.event.pull_request.number }}
