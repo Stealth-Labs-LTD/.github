@@ -31,21 +31,51 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      # Both delete steps distinguish "genuinely not found" (fine — re-run after
+      # a failed deploy, or manual cleanup beat us to it) from real errors
+      # (permission denied, API outage, misconfig). The old pattern swallowed
+      # all errors with `2>/dev/null`, which hid a permission issue on Artifact
+      # Registry for an unknown length of time. If you change this, keep the
+      # failure-mode split.
       - name: Delete Cloud Run service
         run: |
-          gcloud run services delete ${{ inputs.service_name }} \
-            --region=${{ inputs.region }} \
-            --project=${{ env.PROJECT_ID }} \
-            --quiet \
-          2>/dev/null || echo "Service ${{ inputs.service_name }} not found, skipping"
+          set +e
+          gcloud run services delete "${{ inputs.service_name }}" \
+            --region="${{ inputs.region }}" \
+            --project="${{ env.PROJECT_ID }}" \
+            --quiet 2>err.log
+          status=$?
+          set -e
+          if [ $status -eq 0 ]; then
+            echo "Service deleted"
+          elif grep -qiE "NOT_FOUND|not found|does not exist|could not be found" err.log; then
+            echo "Service ${{ inputs.service_name }} not found, skipping"
+          else
+            echo "::error::Failed to delete Cloud Run service (exit $status):"
+            cat err.log
+            exit $status
+          fi
 
       - name: Delete image from Artifact Registry
         run: |
           IMAGE="europe-west2-docker.pkg.dev/${{ env.PROJECT_ID }}/services/${{ inputs.service_name }}"
+          set +e
           gcloud artifacts docker images delete "$IMAGE" \
-            --project=${{ env.PROJECT_ID }} \
-            --quiet --delete-tags \
-          2>/dev/null || echo "Image not found, skipping"
+            --project="${{ env.PROJECT_ID }}" \
+            --quiet --delete-tags 2>err.log
+          status=$?
+          set -e
+          if [ $status -eq 0 ]; then
+            echo "Image deleted"
+          elif grep -qiE "NOT_FOUND|not found|does not exist|could not be found" err.log; then
+            echo "Image $IMAGE not found, skipping"
+          else
+            echo "::error::Failed to delete Artifact Registry image (exit $status):"
+            cat err.log
+            echo ""
+            echo "::notice::If this is PERMISSION_DENIED, grant the deploy service account roles/artifactregistry.repoAdmin on the services repo (push-only permissions aren't enough to delete)."
+            exit $status
+          fi
 
       - name: Job summary
         run: |
