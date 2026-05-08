@@ -6,9 +6,10 @@ on:
       - 'v*'
 
 permissions:
-  contents: read
-  packages: write
-  id-token: write
+  contents: write   # release-asset upload (SBOM attached to GitHub release)
+  packages: write   # GHCR push + cosign attach
+  id-token: write   # cosign keyless signing
+  actions: read     # sbom-action downloads its own workflow artifact via the Actions API
 
 jobs:
   release:
