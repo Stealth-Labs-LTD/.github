@@ -33,6 +33,11 @@ on:
         required: false
         type: string
         default: "APP_"
+      runtime_service_account:
+        description: "Cloud Run runtime service account email (e.g. myapp-runtime@project.iam.gserviceaccount.com). When unset, Cloud Run assigns the default Compute SA, which has no project roles. Set this for any app that needs to authenticate to GCP APIs at runtime."
+        required: false
+        type: string
+        default: ""
     secrets:
       GCP_SA_KEY:
         required: true
@@ -119,6 +124,12 @@ jobs:
 
           IAP_FLAG="${{ inputs.public && '--no-iap' || '--iap' }}"
           AUTH_FLAG="${{ inputs.public && '--allow-unauthenticated' || '--no-allow-unauthenticated' }}"
+
+          SA_FLAG=""
+          if [ -n "${{ inputs.runtime_service_account }}" ]; then
+            SA_FLAG="--service-account=${{ inputs.runtime_service_account }}"
+          fi
+
           URL=$(gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image=${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
             --region=${{ inputs.region }} \
@@ -127,6 +138,7 @@ jobs:
             $ENV_VARS \
             $IAP_FLAG \
             $AUTH_FLAG \
+            $SA_FLAG \
             --project=${{ env.PROJECT_ID }} \
             --format='value(status.url)')
           echo "url=$URL" >> "$GITHUB_OUTPUT"
@@ -152,3 +164,4 @@ jobs:
           echo "| **Region** | \`${{ inputs.region }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **Image** | \`${{ env.SERVICE_NAME }}:${{ github.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **Auth** | ${{ inputs.public && 'Public (no IAP)' || 'IAP protected (team only)' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Runtime SA** | ${{ inputs.runtime_service_account || 'default Compute SA' }} |" >> "$GITHUB_STEP_SUMMARY"
