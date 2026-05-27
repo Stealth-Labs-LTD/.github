@@ -18,6 +18,13 @@ jobs:
   deploy:
     needs: [release]
     uses: Stealth-Labs-LTD/.github/.github/workflows/deploy-cloud-run.yml@main
+    # Uncomment to set the Cloud Run runtime SA. Needed if the app authenticates
+    # to GCP APIs at runtime (Cloud Run, BigQuery, Cloud SQL via IAM, etc.).
+    # Create the SA and grant the minimum role once via gcloud or Terraform
+    # before enabling. POC apps that only call external HTTP APIs don't need
+    # this — the default Compute SA is fine.
+    # with:
+    #   runtime_service_account: myapp-runtime@stealthlabs-dev.iam.gserviceaccount.com
     secrets:
       GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

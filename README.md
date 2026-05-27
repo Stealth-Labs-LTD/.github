@@ -88,6 +88,7 @@ jobs:
 | `port` | `8080` | Container port |
 | `public` | `false` | Set `true` to disable IAP (customer-facing apps). Default is IAP-protected — only `@stealthlabs.uk` Google accounts can access. |
 | `app_secret_prefix` | `APP_` | Repo secrets starting with this prefix are auto-injected as env vars (prefix stripped). |
+| `runtime_service_account` | (unset) | Cloud Run runtime SA email. Set when the app authenticates to GCP APIs at runtime. See "Runtime service account" below. |
 
 **Secrets:**
 | Secret | Required | Description |
@@ -111,6 +112,41 @@ This way:
 - New env vars require only a `gh secret set APP_X` — no workflow edits
 - Org secrets (`OPENROUTER_API_KEY`, `GCP_SA_KEY`) stay explicit and named
 - `toJSON(secrets)` exposes *every* secret the caller has access to, but only `APP_*` ones are used — so stray org secrets (PAT tokens, etc.) are never silently leaked onto a deployed service
+
+#### Runtime service account (for apps that need GCP-native auth)
+
+`APP_*` secrets cover external services with API keys (OpenRouter, third-party SaaS). They **don't** cover GCP-native services that authenticate via IAM (Cloud Run API, BigQuery, Cloud Storage, Pub/Sub, Cloud SQL via IAM, etc.). Those need an *identity*, not a secret.
+
+By default, `deploy-cloud-run.yml` doesn't pass `--service-account=` to `gcloud run deploy`, so the deployed service inherits the **default Compute SA** (`<project-number>-compute@developer.gserviceaccount.com`), which has no project-level roles in `stealthlabs-dev`. POC apps that only call external HTTP APIs are fine with this — they don't authenticate to GCP at all.
+
+Apps that *do* need GCP-native auth set `runtime_service_account` to a dedicated SA:
+
+```yaml
+jobs:
+  deploy:
+    uses: Stealth-Labs-LTD/.github/.github/workflows/deploy-cloud-run.yml@main
+    with:
+      runtime_service_account: myapp-runtime@stealthlabs-dev.iam.gserviceaccount.com
+    secrets: { ... }
+```
+
+One-off setup (per app, per environment) before the input works:
+
+```bash
+# Create the SA
+gcloud iam service-accounts create myapp-runtime \
+  --display-name="myapp runtime" \
+  --project=stealthlabs-dev
+
+# Grant only the roles the app actually needs (principle of least privilege)
+gcloud projects add-iam-policy-binding stealthlabs-dev \
+  --member="serviceAccount:myapp-runtime@stealthlabs-dev.iam.gserviceaccount.com" \
+  --role="roles/run.developer"   # or whichever role(s) the app needs
+```
+
+The `github-deployer@…` SA already has `roles/iam.serviceAccountUser` at project level, so no additional per-SA binding is needed for the deploy workflow to attach the runtime SA.
+
+For PR previews on the same app, use a separate runtime SA scoped to the preview environment (e.g. `myapp-preview@…`) so previews can be granted different (typically smaller) roles than prod.
 
 ### cleanup-cloud-run.yml
 
