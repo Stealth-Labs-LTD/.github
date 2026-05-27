@@ -82,12 +82,21 @@ jobs:
           ALL_SECRETS: ${{ secrets.all_secrets }}
           APP_SECRET_PREFIX: ${{ inputs.app_secret_prefix }}
         run: |
-          # Build env var list: OpenRouter first (existing behaviour), then any
-          # APP_*-prefixed caller secrets (opt-in via the all_secrets input).
-          # Uses ^|^ as the --set-env-vars delimiter so values can contain commas.
+          # Build env var list: release metadata first (tag-triggered deploys only),
+          # then OpenRouter, then any APP_*-prefixed caller secrets (opt-in via
+          # the all_secrets input). Uses ^|^ as the --set-env-vars delimiter so
+          # values can contain commas.
           ENV_VARS_LIST=""
+
+          # APP_VERSION / APP_SHA / APP_REPO are stamped only on tag-triggered
+          # deploys so gcrdash can surface the release version. PR previews
+          # and other non-tag callers are left untouched.
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            ENV_VARS_LIST="APP_VERSION=${GITHUB_REF_NAME}|APP_SHA=${GITHUB_SHA}|APP_REPO=${GITHUB_REPOSITORY}"
+          fi
+
           if [ -n "${{ secrets.OPENROUTER_API_KEY }}" ]; then
-            ENV_VARS_LIST="OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}"
+            ENV_VARS_LIST="${ENV_VARS_LIST:+$ENV_VARS_LIST|}OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}"
           fi
 
           if [ -n "$ALL_SECRETS" ]; then
