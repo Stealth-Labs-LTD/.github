@@ -59,10 +59,16 @@ jobs:
     # consumers (catalogue, dashboards, notifiers) key off the env name +
     # the Deployments API to find the live URL without manual updates.
     #
-    #   pull_request  -> preview-pr-<N>  (one env per open PR)
+    #   pull_request  -> preview    (shared env; each PR deploy is a
+    #                                 separate Deployment record under it)
     #   anything else -> production
+    #
+    # The shared `preview` env keeps the Environments UI tidy (one entry
+    # instead of N) and means PR cleanup never has to delete envs.
+    # Per-PR traceability lives in the PR's own Deployments section + the
+    # Deployments API (which records every deploy with its own ref/sha/url).
     environment:
-      name: ${{ github.event_name == 'pull_request' && format('preview-pr-{0}', github.event.pull_request.number) || 'production' }}
+      name: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
       url: ${{ steps.deploy.outputs.url }}
     env:
       SERVICE_NAME: ${{ inputs.service_name || github.event.repository.name }}
@@ -171,7 +177,7 @@ jobs:
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
           echo "| **Service** | \`${{ env.SERVICE_NAME }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **URL** | ${{ steps.deploy.outputs.url }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| **Environment** | \`${{ github.event_name == 'pull_request' && format('preview-pr-{0}', github.event.pull_request.number) || 'production' }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Environment** | \`${{ github.event_name == 'pull_request' && 'preview' || 'production' }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **Region** | \`${{ inputs.region }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **Image** | \`${{ env.SERVICE_NAME }}:${{ github.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **Auth** | ${{ inputs.public && 'Public (no IAP)' || 'IAP protected (team only)' }} |" >> "$GITHUB_STEP_SUMMARY"

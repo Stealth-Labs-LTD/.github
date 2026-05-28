@@ -105,16 +105,25 @@ The environment name is derived from the caller's triggering event — no input 
 
 | Caller trigger | Environment name | Use case |
 |---|---|---|
-| `pull_request` | `preview-pr-<N>` (one per PR) | ephemeral PR preview deploys |
+| `pull_request` | `preview` (shared across all PRs) | ephemeral PR preview deploys |
 | Anything else (tag push, branch push, `workflow_dispatch`, etc.) | `production` | release / persistent deploys |
 
-The environments are auto-created in the caller repo's settings on first use, with no protection rules. To gate production deploys behind a manual approval, add required reviewers to the `production` environment in the caller repo's **Settings → Environments**. PR previews stay protection-free.
+Two environments total per repo — `production` and `preview` — both auto-created in the caller repo's settings on first use, with no protection rules. To gate production deploys behind a manual approval, add required reviewers to the `production` environment in the caller repo's **Settings → Environments**. The `preview` env stays protection-free.
+
+**Why a shared `preview` env (not one per PR)?** Matches Vercel / Netlify / Heroku review-app conventions: `preview` is a *deployment target*, not a per-PR instance. The Environments UI stays tidy (one entry instead of N), and PR cleanup never has to delete envs. Per-PR traceability is preserved — each PR's *Conversation* page has its own Deployments line with that PR's specific URL, and the Deployments API still returns one record per deploy with its own `ref` / `sha` / `environment_url`.
 
 To find the current production URL of any repo using this workflow:
 
 ```bash
 gh api 'repos/<owner>/<repo>/deployments?environment=production&per_page=1' \
   --jq '.[0].environment_url'
+```
+
+To list all live (non-inactive) preview deploys for a repo:
+
+```bash
+gh api 'repos/<owner>/<repo>/deployments?environment=preview&per_page=10' \
+  --jq '.[] | {sha, environment_url, created_at}'
 ```
 
 #### App env vars (no shared-workflow edits needed per service)
@@ -170,7 +179,7 @@ For PR previews on the same app, use a separate runtime SA scoped to the preview
 
 ### cleanup-cloud-run.yml
 
-Deletes an ephemeral Cloud Run service and its Artifact Registry image. Used on PR close to tear down previews.
+Deletes an ephemeral Cloud Run service and its Artifact Registry image. Used on PR close to tear down previews. Also marks the PR's `preview` GitHub Deployment as `inactive` so the PR's deployment chip goes grey and downstream consumers (catalogue, dashboards) can filter out dead URLs.
 
 ```yaml
 jobs:
@@ -187,6 +196,12 @@ jobs:
 |-------|---------|-------------|
 | `service_name` | (required) | Cloud Run service name to delete |
 | `region` | `europe-west2` | GCP region |
+
+**Deployment record handling:**
+- The GitHub Deployment record is NOT deleted — history (commit, time, URL) is preserved for audit.
+- A new `inactive` status is POSTed to the latest preview Deployment for the PR's head SHA. After this, the URL link still 404s (Cloud Run service is gone), but the PR's deployment chip in the UI goes grey and queries like `?state=success` skip it.
+- If you need the URL link itself to disappear from the GitHub UI, you'd have to DELETE the deployment record entirely — we don't, because losing history isn't worth the cosmetic gain.
+- Marking inactive requires `deployments: write` on the calling workflow's `GITHUB_TOKEN`. The default org/repo permissions ("Read and write") cover this. If the caller is more restrictive, the step logs a warning and exits clean — Cloud Run + Artifact Registry teardown already succeeded.
 
 ### release.yml
 

@@ -77,6 +77,49 @@ jobs:
             exit $status
           fi
 
+      # Mark the latest preview Deployment for this PR's head SHA as
+      # `inactive` so the PR's deployment chip goes grey and downstream
+      # consumers (catalogue, dashboards) can filter out dead URLs via
+      # `?state=success` queries. We do NOT delete the deployment record
+      # — history (commit, time, URL) is kept for audit.
+      #
+      # Non-fatal: if the calling workflow's GITHUB_TOKEN lacks
+      # `deployments: write`, or there's no matching deployment, we log a
+      # warning and exit clean. Cloud Run + Artifact Registry teardown
+      # already succeeded; the inactive marker is cosmetic.
+      - name: Mark preview deployment inactive
+        if: github.event.pull_request.head.sha
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set +e
+          DEPLOYMENT_ID=$(gh api \
+            "/repos/${REPO}/deployments?sha=${HEAD_SHA}&environment=preview&per_page=1" \
+            --jq '.[0].id' 2>err.log)
+          status=$?
+          if [ $status -ne 0 ]; then
+            echo "::warning::Could not query deployments (${status}). Skipping inactive marker."
+            cat err.log
+            exit 0
+          fi
+          if [ -z "$DEPLOYMENT_ID" ] || [ "$DEPLOYMENT_ID" = "null" ]; then
+            echo "No preview deployment found for ${HEAD_SHA}; nothing to mark."
+            exit 0
+          fi
+          gh api -X POST "/repos/${REPO}/deployments/${DEPLOYMENT_ID}/statuses" \
+            -f state=inactive \
+            -f description="Cloud Run service torn down on PR close" 2>err.log
+          status=$?
+          set -e
+          if [ $status -eq 0 ]; then
+            echo "Marked deployment ${DEPLOYMENT_ID} inactive"
+          else
+            echo "::warning::Failed to mark deployment ${DEPLOYMENT_ID} inactive (exit ${status}). This is non-fatal — Cloud Run + image were already deleted."
+            cat err.log
+          fi
+
       - name: Job summary
         run: |
           echo "## Cleaned up Cloud Run preview" >> "$GITHUB_STEP_SUMMARY"
