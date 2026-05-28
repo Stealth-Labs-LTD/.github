@@ -97,6 +97,26 @@ jobs:
 | `OPENROUTER_API_KEY` | No | OpenRouter key (inherited from org secrets). Injected as an env var. |
 | `all_secrets` | No | Pass `${{ toJSON(secrets) }}` from the caller to auto-inject `APP_*` repo secrets. |
 
+#### GitHub Deployments + environment auto-classification
+
+Every run creates a GitHub Deployment record under the caller repo with `environment_url` populated, so downstream consumers (the catalogue, dashboards, Slack notifiers) can find the live URL via the Deployments API instead of scraping job summaries.
+
+The environment name is derived from the caller's triggering event — no input to pass, no caller-side change needed:
+
+| Caller trigger | Environment name | Use case |
+|---|---|---|
+| `pull_request` | `preview-pr-<N>` (one per PR) | ephemeral PR preview deploys |
+| Anything else (tag push, branch push, `workflow_dispatch`, etc.) | `production` | release / persistent deploys |
+
+The environments are auto-created in the caller repo's settings on first use, with no protection rules. To gate production deploys behind a manual approval, add required reviewers to the `production` environment in the caller repo's **Settings → Environments**. PR previews stay protection-free.
+
+To find the current production URL of any repo using this workflow:
+
+```bash
+gh api 'repos/<owner>/<repo>/deployments?environment=production&per_page=1' \
+  --jq '.[0].environment_url'
+```
+
 #### App env vars (no shared-workflow edits needed per service)
 
 Each service has its own env var needs (access codes, feature flags, DB URLs, etc.). Rather than adding every one of them to the shared workflow, store them as **repo-level secrets prefixed with `APP_`**. The shared workflow scans the `all_secrets` bag for matching keys, strips the `APP_` prefix, and injects them:
