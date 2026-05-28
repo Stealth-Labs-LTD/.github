@@ -100,8 +100,15 @@ jobs:
             --jq '.[0].id' 2>err.log)
           status=$?
           if [ $status -ne 0 ]; then
-            echo "::warning::Could not query deployments (${status}). Skipping inactive marker."
+            echo "::warning::Could not query deployments (exit ${status}). Skipping inactive marker."
             cat err.log
+            if grep -qiE "Resource not accessible by integration|HTTP 403" err.log; then
+              echo "::notice::This is almost certainly a missing permission. Add the following to the CALLING workflow (e.g. .github/workflows/pr-cleanup.yml in your repo):"
+              echo "::notice::  permissions:"
+              echo "::notice::    contents: read"
+              echo "::notice::    deployments: write"
+              echo "::notice::See https://github.com/Stealth-Labs-LTD/.github#cleanup-cloud-runyml for details."
+            fi
             exit 0
           fi
           if [ -z "$DEPLOYMENT_ID" ] || [ "$DEPLOYMENT_ID" = "null" ]; then

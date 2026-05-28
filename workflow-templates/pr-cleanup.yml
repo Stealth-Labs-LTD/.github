@@ -5,6 +5,14 @@ on:
     types: [closed]
     branches: [main]
 
+# `deployments: write` is needed so the reusable workflow can mark the PR's
+# preview GitHub Deployment as `inactive` after tearing down Cloud Run.
+# Without it the `gh api` call gets HTTP 403 and the inactive marker is
+# silently skipped (Cloud Run + Artifact Registry teardown still succeeds).
+permissions:
+  contents: read
+  deployments: write
+
 jobs:
   cleanup:
     uses: Stealth-Labs-LTD/.github/.github/workflows/cleanup-cloud-run.yml@main

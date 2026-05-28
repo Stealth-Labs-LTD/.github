@@ -201,7 +201,14 @@ jobs:
 - The GitHub Deployment record is NOT deleted — history (commit, time, URL) is preserved for audit.
 - A new `inactive` status is POSTed to the latest preview Deployment for the PR's head SHA. After this, the URL link still 404s (Cloud Run service is gone), but the PR's deployment chip in the UI goes grey and queries like `?state=success` skip it.
 - If you need the URL link itself to disappear from the GitHub UI, you'd have to DELETE the deployment record entirely — we don't, because losing history isn't worth the cosmetic gain.
-- Marking inactive requires `deployments: write` on the calling workflow's `GITHUB_TOKEN`. The default org/repo permissions ("Read and write") cover this. If the caller is more restrictive, the step logs a warning and exits clean — Cloud Run + Artifact Registry teardown already succeeded.
+
+> ⚠️ **The calling workflow MUST grant `deployments: write`.** The reusable workflow can't escalate beyond the caller's `GITHUB_TOKEN`. Modern GitHub org/repo defaults grant only `contents: read` + `packages: read`, so without this block the `gh api` call to mark the deployment inactive will silently 403 (Cloud Run + Artifact Registry teardown still succeeds). The `workflow-templates/pr-cleanup.yml` template includes the block by default; existing caller workflows need a one-time edit. Add to your `pr-cleanup.yml`:
+>
+> ```yaml
+> permissions:
+>   contents: read
+>   deployments: write
+> ```
 
 ### release.yml
 
