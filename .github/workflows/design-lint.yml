@@ -1,0 +1,27 @@
+name: Design lint
+
+# Reusable gate: lints a product's UI against the Stealth Labs design system
+# (no emoji, flat/no-blur, no gradients, self-contained). OPT-IN — only UI projects
+# call this; backends/pipelines/libraries never do. Runs the lint shipped by the
+# design-system repo, so the rules stay in one place.
+on:
+  workflow_call:
+    inputs:
+      paths:
+        description: "Files/dirs to lint (space-separated)"
+        required: false
+        type: string
+        default: "src"
+
+permissions:
+  contents: read
+
+jobs:
+  design-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint UI against the Stealth Labs design system
+        uses: Stealth-Labs-LTD/Stealth_Labs_Design_System@v1.0.0
+        with:
+          paths: ${{ inputs.paths }}
