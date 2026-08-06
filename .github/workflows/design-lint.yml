@@ -22,6 +22,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Lint UI against the Stealth Labs design system
-        uses: Stealth-Labs-LTD/Stealth_Labs_Design_System@main
+        uses: Stealth-Labs-LTD/Stealth_Labs_Design_System@v1.0.0
         with:
           paths: ${{ inputs.paths }}
