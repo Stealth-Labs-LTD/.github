@@ -1,0 +1,5 @@
+{
+  "name": "PR review (Stealth Labs)",
+  "description": "Automated Stealth Labs code review on pull requests, via the ai-dev-kit reviewer plugin.",
+  "categories": ["Code review", "Automation"]
+}

@@ -1,0 +1,10 @@
+name: PR review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+jobs:
+  review:
+    uses: Stealth-Labs-LTD/.github/.github/workflows/pr-review.yml@main
+    secrets: inherit
