@@ -7,4 +7,10 @@ on:
 jobs:
   review:
     uses: Stealth-Labs-LTD/.github/.github/workflows/pr-review.yml@main
-    secrets: inherit
+    # Optional overrides — the values below are the defaults, shown so you can see
+    # the knobs. Delete any line to keep its default.
+    with:
+      model: claude-opus-4-8      # cheaper: claude-sonnet-5 · fastest: claude-haiku-4-5-20251001
+      persona: stealth-labs       # a persona skill in the pr-review plugin (ai-dev-kit)
+      review_drafts: false        # true = also review draft PRs
+    secrets: inherit              # needs CLAUDE_CODE_OAUTH_TOKEN and AI_DEV_KIT_TOKEN

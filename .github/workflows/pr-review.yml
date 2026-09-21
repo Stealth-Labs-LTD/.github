@@ -13,6 +13,11 @@ on:
         required: false
         type: string
         default: "stealth-labs"
+      review_drafts:
+        description: "Review draft PRs too (default: skip drafts, review once marked ready)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -23,7 +28,7 @@ permissions:
 jobs:
   review:
     # Skip draft PRs; the ready_for_review trigger runs it once the PR is marked ready.
-    if: ${{ github.event.pull_request.draft == false }}
+    if: ${{ inputs.review_drafts || github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
