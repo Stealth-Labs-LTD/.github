@@ -13,4 +13,4 @@ jobs:
       model: claude-opus-4-8      # cheaper: claude-sonnet-5 · fastest: claude-haiku-4-5-20251001
       persona: stealth-labs       # a persona skill in the pr-review plugin (ai-dev-kit)
       review_drafts: false        # true = also review draft PRs
-    secrets: inherit              # needs CLAUDE_CODE_OAUTH_TOKEN and AI_DEV_KIT_TOKEN
+    secrets: inherit              # needs CLAUDE_CODE_OAUTH_TOKEN + SL_AI_DEV_KIT_APP_ID / SL_AI_DEV_KIT_APP_KEY
