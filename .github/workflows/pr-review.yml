@@ -35,18 +35,27 @@ jobs:
         with:
           fetch-depth: 1
 
-      # ai-dev-kit (the reviewer plugin marketplace) is an internal repo, so give
-      # git a token to clone it. Set AI_DEV_KIT_TOKEN as an org secret with read
-      # access to Stealth-Labs-LTD/ai-dev-kit. Skipped if the secret is absent.
+      # ai-dev-kit (the reviewer plugin marketplace) is an internal repo, so the
+      # runner needs read access to clone it. A GitHub App installed on the org
+      # (Contents: read on ai-dev-kit) mints a short-lived token per run, which is
+      # cleaner than a long-lived PAT. Set SL_AI_DEV_KIT_APP_ID and
+      # SL_AI_DEV_KIT_APP_KEY (the App's id and private key) as org secrets.
+      - name: Mint ai-dev-kit token
+        id: adk
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.SL_AI_DEV_KIT_APP_ID }}
+          private-key: ${{ secrets.SL_AI_DEV_KIT_APP_KEY }}
+          owner: Stealth-Labs-LTD
+          repositories: ai-dev-kit
+
       - name: Configure git for the internal plugin marketplace
         env:
-          AI_DEV_KIT_TOKEN: ${{ secrets.AI_DEV_KIT_TOKEN }}
+          AI_DEV_KIT_TOKEN: ${{ steps.adk.outputs.token }}
         run: |
-          if [ -n "$AI_DEV_KIT_TOKEN" ]; then
-            git config --global \
-              url."https://x-access-token:${AI_DEV_KIT_TOKEN}@github.com/Stealth-Labs-LTD".insteadOf \
-              "https://github.com/Stealth-Labs-LTD"
-          fi
+          git config --global \
+            url."https://x-access-token:${AI_DEV_KIT_TOKEN}@github.com/Stealth-Labs-LTD".insteadOf \
+            "https://github.com/Stealth-Labs-LTD"
 
       - uses: anthropics/claude-code-action@v1
         with:
