@@ -196,6 +196,26 @@ jobs:
             --json "$OUT" --run-id "$RUN_ID" --claude-exit "$RC" \
             --started-at "$STARTED" --wall-s "$WALL" --mechanical "$MECHANICAL" --head-sha "$HEAD_SHA"
 
+      # The reviewer's own report, including what it would have posted, shown on the run's summary
+      # page so a shadow review can be read without downloading the artifact.
+      - name: Show the review
+        if: ${{ always() && steps.review.outputs.out != '' }}
+        env:
+          OUT: ${{ steps.review.outputs.out }}
+          RUN_ID: ${{ steps.prep.outputs.run_id }}
+        run: |
+          {
+            echo "## sl-review (shadow): $RUN_ID"
+            echo
+            if [ -s "$OUT" ]; then
+              jq -r '.result // "The run produced no report."' "$OUT"
+              echo
+              jq -r '"Estimated cost at API prices: $" + ((.total_cost_usd // 0) * 100 | round / 100 | tostring)' "$OUT"
+            else
+              echo "The run produced no output file."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload the run
         if: always()
         uses: actions/upload-artifact@v4
