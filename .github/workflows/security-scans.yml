@@ -9,7 +9,13 @@ on:
         type: string
         default: p/security-audit p/secrets
       trivy-severity:
-        description: "Trivy severity threshold"
+        # Blocking threshold for the APP-CODE scans (dependencies + container
+        # image). Defaults to HIGH,CRITICAL: those findings are mostly in
+        # transitive deps we can't always patch on our own timeline, so we only
+        # fail the build on the serious ones and track MEDIUM/LOW via Dependabot.
+        # The infra (config) scan is deliberately held to a stricter bar — see
+        # the trivy-config job below.
+        description: "Blocking severity for the dependency + image scans (app code)"
         required: false
         type: string
         default: HIGH,CRITICAL
@@ -54,6 +60,16 @@ jobs:
         with:
           extra_args: --only-verified
 
+  # --- Trivy severity policy (two tiers) --------------------------------------
+  # App code (deps + image): block on HIGH,CRITICAL only. Findings are mostly
+  #   third-party/transitive and not always fixable by us immediately; MEDIUM/LOW
+  #   are tracked and scheduled via Dependabot rather than blocking every PR.
+  # Infra (config/IaC): block on MEDIUM,HIGH,CRITICAL. These are first-party
+  #   files we own (Dockerfiles, Terraform, etc.) and are cheap to fix, so we
+  #   hold them to a higher bar. LOW is excluded because Trivy's LOW misconfig
+  #   checks are mostly best-practice lint, not security issues.
+  # ----------------------------------------------------------------------------
+
   trivy-scan:
     name: trivy-scan
     runs-on: ubuntu-latest
@@ -63,7 +79,7 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
-          severity: ${{ inputs.trivy-severity }}
+          severity: ${{ inputs.trivy-severity }}  # app-code threshold (HIGH,CRITICAL)
           exit-code: 1
 
   trivy-config:
@@ -76,6 +92,11 @@ jobs:
         with:
           scan-type: config
           scan-ref: ${{ inputs.infra-path }}
+          # Infra is first-party and cheap to fix, so it's held to a stricter
+          # bar than app code: block on MEDIUM and up (not just HIGH,CRITICAL).
+          # Set explicitly — without this, trivy-action defaults to ALL
+          # severities and LOW best-practice lint would fail the build too.
+          severity: MEDIUM,HIGH,CRITICAL
           exit-code: 1
         if: hashFiles('infra/**') != ''
 
@@ -94,6 +115,6 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
-          severity: ${{ inputs.trivy-severity }}
+          severity: ${{ inputs.trivy-severity }}  # app-code threshold (HIGH,CRITICAL)
           exit-code: 1
         if: hashFiles('Dockerfile') != ''
