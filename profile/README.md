@@ -1,7 +1,7 @@
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/Stealth-Labs-LTD/.github/raw/main/profile/assets/banner-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="https://github.com/Stealth-Labs-LTD/.github/raw/main/profile/assets/banner-light.png">
-  <img alt="Stealth Labs. We ship AI systems. Build, advise, enable." src="https://github.com/Stealth-Labs-LTD/.github/raw/main/profile/assets/banner-light.png" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/Stealth-Labs-LTD/.github/raw/main/profile/assets/banner-dark.png?v=2">
+  <source media="(prefers-color-scheme: light)" srcset="https://github.com/Stealth-Labs-LTD/.github/raw/main/profile/assets/banner-light.png?v=2">
+  <img alt="Stealth Labs. Build, advise, enable." src="https://github.com/Stealth-Labs-LTD/.github/raw/main/profile/assets/banner-light.png?v=2" width="100%">
 </picture>
 
 **A technical AI studio with offices across the UK.** We design, build and operate software for government and enterprise.
