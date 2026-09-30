@@ -1,0 +1,231 @@
+name: legion
+
+# Reusable workflow for the Legion persona from ai-dev-kit's pr-review plugin. Shadow only: it
+# reviews a pull request and uploads what it found as a run artifact, and cannot post anything.
+#
+# Adopt it by adding .github/workflows/legion.yml to a repo:
+#
+#   on:
+#     pull_request:
+#       types: [opened, synchronize, ready_for_review, reopened]
+#   permissions:
+#     contents: read
+#     pull-requests: read
+#     issues: read
+#   jobs:
+#     legion:
+#       uses: Stealth-Labs-LTD/.github/.github/workflows/legion.yml@main
+#       secrets: inherit
+#
+# Secrets, as org or repo secrets: SL_AI_DEV_KIT_APP_ID and SL_AI_DEV_KIT_APP_KEY for the ai-dev-kit
+# checkout, and LEGION_ANTHROPIC_API_KEY for billing (LEGION_OAUTH_TOKEN for testing only).
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        description: "Orchestrator model. The reviewer's agents pin their own models."
+        required: false
+        type: string
+        default: "claude-opus-5-5[1m]"
+      mechanical_checks:
+        description: "Run the mechanical checks (no ticket IDs in code, one-line comments). Turn on only for repos whose CLAUDE.md states those rules."
+        required: false
+        type: boolean
+        default: false
+      kit_ref:
+        description: "The ai-dev-kit branch, tag or SHA to load the plugin from"
+        required: false
+        type: string
+        default: "main"
+      review_drafts:
+        description: "Review draft PRs too (default: skip drafts, review once marked ready)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  # Legion reads a diff prepared before it starts and needs a session hook, so this job runs the
+  # Claude Code CLI directly, the way sl-reviewer-proto's shadow.sh does, rather than through
+  # claude-code-action.
+  #
+  # Shadow only. Nothing here can post: the job's GitHub token is read-only, every gh write is on the
+  # deny list, and the skill refuses --comment. Findings, usage and memory go to a run artifact.
+  #
+  # The review runs in an empty folder, not a checkout of the pull request, so nothing the pull
+  # request adds under .claude/ (settings, hooks, agents) is loaded into a session holding the API key.
+  legion:
+    if: ${{ inputs.review_drafts || github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Refuse repositories that are never reviewed
+        run: |
+          case "$REPO" in
+            *fraud-detection-etl*) echo "refused: $REPO holds real personal data and is never sent to the reviewer." >&2; exit 65 ;;
+          esac
+
+      # ai-dev-kit is internal. A GitHub App (Contents: read on ai-dev-kit) mints a short-lived token
+      # for the checkout, the same way pr-review.yml does. Needs the org secrets SL_AI_DEV_KIT_APP_ID
+      # and SL_AI_DEV_KIT_APP_KEY.
+      - name: Mint ai-dev-kit token
+        id: adk
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.SL_AI_DEV_KIT_APP_ID }}
+          private-key: ${{ secrets.SL_AI_DEV_KIT_APP_KEY }}
+          owner: Stealth-Labs-LTD
+          repositories: ai-dev-kit
+
+      - name: Check out ai-dev-kit
+        uses: actions/checkout@v6
+        with:
+          repository: Stealth-Labs-LTD/ai-dev-kit
+          ref: ${{ inputs.kit_ref }}
+          token: ${{ steps.adk.outputs.token }}
+          path: kit
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      # The diff is fetched once, byte for byte, and the lenses and verifier read it from this file.
+      - name: Prepare the diff
+        id: prep
+        env:
+          SL_MECHANICAL_REPOS: ${{ inputs.mechanical_checks && github.repository || '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p work/.legion
+          cd work
+          git init -q
+          scripts="$GITHUB_WORKSPACE/kit/plugins/pr-review/scripts"
+          run_id="$REPO#$PR/p0"
+          safe=$(printf '%s' "$run_id" | tr '/#' '__')
+          raw="$PWD/.legion/$safe.diff"
+          annotated="$PWD/.legion/$safe.annotated"
+          mechanical="$PWD/.legion/$safe.mechanical.jsonl"
+          head_sha=$("$scripts/fetch_diff.sh" "$REPO" "$PR" "$raw")
+          python3 "$scripts/annotate_diff.py" "$raw" "$annotated"
+          "$scripts/mechanical.sh" "$annotated" "$mechanical" "$run_id" "$REPO" "$PR" "$head_sha"
+          {
+            echo "run_id=$run_id"
+            echo "safe=$safe"
+            echo "head_sha=$head_sha"
+            echo "annotated=$annotated"
+            echo "mechanical=$mechanical"
+          } >> "$GITHUB_OUTPUT"
+
+      # Same flags as shadow.sh. --strict-mcp-config with no --mcp-config loads no MCP servers.
+      # The hook limits lens-bugs to reading the diff file. --add-dir lets the orchestrator read the
+      # hazard lists, which sit in the plugin folder rather than the working directory.
+      - name: Review in shadow
+        id: review
+        working-directory: work
+        env:
+          SL_API_KEY: ${{ secrets.LEGION_ANTHROPIC_API_KEY }}
+          SL_OAUTH_TOKEN: ${{ secrets.LEGION_OAUTH_TOKEN }}
+          SL_DIFF_PATH: ${{ steps.prep.outputs.annotated }}
+          HEAD_SHA: ${{ steps.prep.outputs.head_sha }}
+          SAFE: ${{ steps.prep.outputs.safe }}
+          MODEL: ${{ inputs.model }}
+        run: |
+          set -uo pipefail
+          # Billing: an API key when LEGION_ANTHROPIC_API_KEY is set, which is the plan for real use.
+          # Otherwise a subscription token from LEGION_OAUTH_TOKEN, for testing only. Only one is
+          # exported, because Claude Code prefers an API key over a token when both are present.
+          if [ -n "$SL_API_KEY" ]; then
+            export ANTHROPIC_API_KEY="$SL_API_KEY"
+          elif [ -n "$SL_OAUTH_TOKEN" ]; then
+            export CLAUDE_CODE_OAUTH_TOKEN="$SL_OAUTH_TOKEN"
+          else
+            echo "No credential: set LEGION_ANTHROPIC_API_KEY, or LEGION_OAUTH_TOKEN for testing." >&2
+            exit 1
+          fi
+          kit="$GITHUB_WORKSPACE/kit/plugins/pr-review"
+          out="$PWD/.legion/$SAFE.json"
+          hooks=$(jq -cn --arg cmd "$kit/scripts/hooks/diff-only-read.sh" \
+            '{hooks: {PreToolUse: [{matcher: "Read", hooks: [{type: "command", command: $cmd}]}]}}')
+          started=$(date +%s)
+          claude -p "/pr-review:legion $REPO $PR --diff $SL_DIFF_PATH --head $HEAD_SHA" \
+            --plugin-dir "$kit" \
+            --add-dir "$kit" \
+            --model "$MODEL" \
+            --strict-mcp-config \
+            --settings "$hooks" \
+            --output-format json \
+            --permission-prompts none \
+            --allowedTools "Agent,Read,Write,Edit,Grep,Glob,Bash(date:*),Bash(gh pr view:*),Bash(gh api:*),Bash(git diff:*)" \
+            --disallowedTools "Bash(gh api --method:*),Bash(gh api -X:*),Bash(gh api -f:*),Bash(gh api -F:*),Bash(gh api --field:*),Bash(gh api --raw-field:*),Bash(gh api --input:*),Bash(gh pr comment:*),Bash(gh pr review:*),Bash(gh pr edit:*)" \
+            < /dev/null > "$out" 2> "$out.stderr"
+          rc=$?
+          {
+            echo "rc=$rc"
+            echo "started=$started"
+            echo "wall=$(( $(date +%s) - started ))"
+            echo "out=$out"
+          } >> "$GITHUB_OUTPUT"
+
+      # stamp_run.py records the findings and appends a usage line. Its exit code fails the job when
+      # the review did not finish or wrote no usable findings.
+      - name: Record the run
+        working-directory: work
+        env:
+          LEGION_ROOT: ${{ github.workspace }}/work
+          OUT: ${{ steps.review.outputs.out }}
+          RUN_ID: ${{ steps.prep.outputs.run_id }}
+          RC: ${{ steps.review.outputs.rc }}
+          STARTED: ${{ steps.review.outputs.started }}
+          WALL: ${{ steps.review.outputs.wall }}
+          MECHANICAL: ${{ steps.prep.outputs.mechanical }}
+          HEAD_SHA: ${{ steps.prep.outputs.head_sha }}
+        run: |
+          python3 "$GITHUB_WORKSPACE/kit/plugins/pr-review/scripts/stamp_run.py" \
+            --json "$OUT" --run-id "$RUN_ID" --claude-exit "$RC" \
+            --started-at "$STARTED" --wall-s "$WALL" --mechanical "$MECHANICAL" --head-sha "$HEAD_SHA"
+
+      # The reviewer's own report, including what it would have posted, shown on the run's summary
+      # page so a shadow review can be read without downloading the artifact.
+      - name: Show the review
+        if: ${{ always() && steps.review.outputs.out != '' }}
+        env:
+          OUT: ${{ steps.review.outputs.out }}
+          RUN_ID: ${{ steps.prep.outputs.run_id }}
+        run: |
+          {
+            echo "## Legion (shadow): $RUN_ID"
+            echo
+            if [ -s "$OUT" ]; then
+              jq -r '.result // "The run produced no report."' "$OUT"
+              echo
+              jq -r '"Estimated cost at API prices: $" + ((.total_cost_usd // 0) * 100 | round / 100 | tostring)' "$OUT"
+            else
+              echo "The run produced no output file."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: legion-pr${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            work/.legion/
+            work/findings.json
+            work/usage.jsonl
+            work/.backtest/rejected/
+            work/.claude/agent-memory/
+          include-hidden-files: true
+          if-no-files-found: warn
