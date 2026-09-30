@@ -9,6 +9,7 @@ Org-wide defaults and reusable workflows for all Stealth Labs repositories.
 | `pull_request_template.md` | Org-wide default PR template (repos inherit this automatically) |
 | `.github/workflows/` | Reusable workflows called by individual repos |
 | `workflow-templates/` | Starter workflows shown in the GitHub UI (Actions > New workflow) |
+| `profile/` | The public org page at github.com/Stealth-Labs-LTD. Banners are rendered by `profile/assets/src/render.sh`. The members-only page lives in `.github-private` |
 
 ## Reusable workflows
 
