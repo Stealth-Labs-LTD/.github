@@ -6,7 +6,8 @@
 # JetBrains Mono subsets are embedded, so renders are offline and repeatable.
 # GitHub strips webfonts from SVGs in READMEs, which is why we ship PNGs.
 #
-# To change the copy, edit the query strings below; '|' breaks the headline.
+# To change the copy, edit the query strings below: k= sets the kicker, h1= the
+# headline ('|' breaks a line), big=1 swaps the headline for an oversized wordmark.
 #
 # Usage: profile/assets/src/render.sh   (needs Google Chrome)
 set -euo pipefail
@@ -21,12 +22,13 @@ shot() { # <width,height> <output.png> <query string>
     --screenshot="$out/$2" "file://$here/banner.html?$3" >/dev/null 2>&1
 }
 
-members="h1=Every%20person%7Cships%20code.&k=Members%20%2F%20Start%20here&fs=80"
+members="k=Members%20%2F%20Start%20here"
 
-shot 1280,440 banner-dark.png   "theme=dark"
-shot 1280,440 banner-light.png  "theme=light"
-shot 1280,440 members-dark.png  "theme=dark&$members"
-shot 1280,440 members-light.png "theme=light&$members"
+# Org page banners lead with the wordmark (big=1); the social card keeps the headline
+shot 1280,440 banner-dark.png   "theme=dark&big=1"
+shot 1280,440 banner-light.png  "theme=light&big=1"
+shot 1280,440 members-dark.png  "theme=dark&big=1&$members"
+shot 1280,440 members-light.png "theme=light&big=1&$members"
 shot 1280,640 social-card.png   "theme=dark&card=1"
 
 echo "Rendered to $out"

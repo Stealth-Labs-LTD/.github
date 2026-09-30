@@ -48,6 +48,11 @@
   .card h1 { font-size: 104px; }
   .kicker { font-family: var(--sl-font-mono); font-weight: 500; font-size: 17px; letter-spacing: var(--sl-tracking-wide);
             text-transform: uppercase; color: var(--muted); margin-top: 26px; }
+  /* Wordmark-led variant: the logo is the headline */
+  .big .wordmark { height: 176px; }
+  .big h1 { display: none; }
+  .big .content { justify-content: center; }
+  .big .kicker { margin-top: 40px; font-size: 19px; }
   .card .kicker { font-size: 20px; margin-top: 36px; }
 </style>
 </head>
@@ -65,6 +70,7 @@
   const p = new URLSearchParams(location.search);
   document.documentElement.dataset.theme = p.get('theme') || 'dark';
   if (p.get('card')) document.getElementById('c').classList.add('card');
+  if (p.get('big')) document.getElementById('c').classList.add('big');
   // Optional copy overrides: '|' breaks the headline, '/' is spaced out in the kicker
   const esc = t => t.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
   if (p.get('h1')) document.getElementById('h').innerHTML = p.get('h1').split('|').map(esc).join('<br>');
