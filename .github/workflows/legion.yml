@@ -60,7 +60,9 @@ jobs:
   # The review runs in an empty folder, not a checkout of the pull request, so nothing the pull
   # request adds under .claude/ (settings, hooks, agents) is loaded into a session holding the API key.
   legion:
-    if: ${{ inputs.review_drafts || github.event.pull_request.draft == false }}
+    # Skip Dependabot PRs: GitHub withholds the normal secrets from Dependabot-triggered runs, and a
+    # dependency version bump does not need a review. Keeps the reviewer from failing on those PRs.
+    if: ${{ github.actor != 'dependabot[bot]' && (inputs.review_drafts || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
