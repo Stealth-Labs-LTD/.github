@@ -31,4 +31,9 @@ shot 1280,440 members-dark.png  "theme=dark&big=1&$members"
 shot 1280,440 members-light.png "theme=light&big=1&$members"
 shot 1280,640 social-card.png   "theme=dark&card=1"
 
+# Banner for this repo's own README
+repo="k=Shared%20CI%2FCD%20%2F%20Org%20defaults"
+shot 1280,440 repo-dark.png     "theme=dark&big=1&$repo"
+shot 1280,440 repo-light.png    "theme=light&big=1&$repo"
+
 echo "Rendered to $out"
