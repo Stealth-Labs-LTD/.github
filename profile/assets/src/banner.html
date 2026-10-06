@@ -71,11 +71,11 @@
   document.documentElement.dataset.theme = p.get('theme') || 'dark';
   if (p.get('card')) document.getElementById('c').classList.add('card');
   if (p.get('big')) document.getElementById('c').classList.add('big');
-  // Optional copy overrides: '|' breaks the headline, '/' is spaced out in the kicker
+  // Optional copy overrides: '|' breaks the headline; ' / ' is widened in the kicker (CI/CD stays tight)
   const esc = t => t.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
   if (p.get('h1')) document.getElementById('h').innerHTML = p.get('h1').split('|').map(esc).join('<br>');
   if (p.get('fs')) document.getElementById('h').style.fontSize = p.get('fs') + 'px';
-  if (p.get('k'))  document.getElementById('k').innerHTML = esc(p.get('k')).replaceAll('/', '&nbsp;/&nbsp;');
+  if (p.get('k'))  document.getElementById('k').innerHTML = esc(p.get('k')).replaceAll(' / ', ' &nbsp;/&nbsp; ');
 </script>
 </body>
 </html>

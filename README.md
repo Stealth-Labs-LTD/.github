@@ -1,3 +1,9 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/Stealth-Labs-LTD/.github/raw/main/profile/assets/repo-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="https://github.com/Stealth-Labs-LTD/.github/raw/main/profile/assets/repo-light.png">
+  <img alt="Stealth Labs. Shared CI/CD and org defaults." src="https://github.com/Stealth-Labs-LTD/.github/raw/main/profile/assets/repo-light.png" width="100%">
+</picture>
+
 # Stealth Labs — Shared GitHub Config
 
 Org-wide defaults and reusable workflows for all Stealth Labs repositories.
