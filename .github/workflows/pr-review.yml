@@ -28,7 +28,10 @@ permissions:
 jobs:
   review:
     # Skip draft PRs; the ready_for_review trigger runs it once the PR is marked ready.
-    if: ${{ inputs.review_drafts || github.event.pull_request.draft == false }}
+    # Skip Dependabot PRs: GitHub withholds the normal secrets from Dependabot-triggered runs
+    # (they use the separate Dependabot secret store), so the reviewer has no credential and fails.
+    # A dependency version bump does not need an AI review in any case.
+    if: ${{ github.actor != 'dependabot[bot]' && (inputs.review_drafts || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
