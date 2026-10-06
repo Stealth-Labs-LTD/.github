@@ -18,7 +18,7 @@ name: legion
 #       secrets: inherit
 #
 # Secrets, as org or repo secrets: SL_AI_DEV_KIT_APP_ID and SL_AI_DEV_KIT_APP_KEY for the ai-dev-kit
-# checkout, and LEGION_ANTHROPIC_API_KEY for billing (LEGION_OAUTH_TOKEN for testing only).
+# checkout, and CLAUDE_CODE_OAUTH_TOKEN for the reviewer (the same secret every toolkit reviewer uses).
 
 on:
   workflow_call:
@@ -137,23 +137,18 @@ jobs:
         id: review
         working-directory: work
         env:
-          SL_API_KEY: ${{ secrets.LEGION_ANTHROPIC_API_KEY }}
-          SL_OAUTH_TOKEN: ${{ secrets.LEGION_OAUTH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           SL_DIFF_PATH: ${{ steps.prep.outputs.annotated }}
           HEAD_SHA: ${{ steps.prep.outputs.head_sha }}
           SAFE: ${{ steps.prep.outputs.safe }}
           MODEL: ${{ inputs.model }}
         run: |
           set -uo pipefail
-          # Billing: an API key when LEGION_ANTHROPIC_API_KEY is set, which is the plan for real use.
-          # Otherwise a subscription token from LEGION_OAUTH_TOKEN, for testing only. Only one is
-          # exported, because Claude Code prefers an API key over a token when both are present.
-          if [ -n "$SL_API_KEY" ]; then
-            export ANTHROPIC_API_KEY="$SL_API_KEY"
-          elif [ -n "$SL_OAUTH_TOKEN" ]; then
-            export CLAUDE_CODE_OAUTH_TOKEN="$SL_OAUTH_TOKEN"
-          else
-            echo "No credential: set LEGION_ANTHROPIC_API_KEY, or LEGION_OAUTH_TOKEN for testing." >&2
+          # Every reviewer in the toolkit authenticates with the same org secret,
+          # CLAUDE_CODE_OAUTH_TOKEN, so legion runs on the Claude subscription seat like the
+          # stealth-labs persona. It is already in the step environment; just confirm it is present.
+          if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+            echo "No credential: set CLAUDE_CODE_OAUTH_TOKEN as an org secret (passed via secrets: inherit)." >&2
             exit 1
           fi
           kit="$GITHUB_WORKSPACE/kit/plugins/pr-review"
