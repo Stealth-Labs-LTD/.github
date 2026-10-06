@@ -60,6 +60,19 @@ jobs:
             url."https://x-access-token:${AI_DEV_KIT_TOKEN}@github.com/Stealth-Labs-LTD".insteadOf \
             "https://github.com/Stealth-Labs-LTD"
 
+      # Tools depend on the persona, not a separate workflow. The default personas
+      # (stealth-labs) post inline + summary comments. Legion is a multi-agent shadow
+      # reviewer: it needs Agent (subagents), Write and Bash (to self-fetch + annotate
+      # the diff), and it must NOT post, so it gets no comment tools.
+      - name: Tools for this persona
+        id: tools
+        run: |
+          if [ "${{ inputs.persona }}" = "legion" ]; then
+            echo 'list=Agent,Read,Write,Edit,Grep,Glob,Bash(date:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(git diff:*),Bash(python3:*)' >> "$GITHUB_OUTPUT"
+          else
+            echo 'list=mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*)' >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -68,4 +81,4 @@ jobs:
           prompt: "/pr-review:${{ inputs.persona }} ${{ github.event.pull_request.number }}"
           claude_args: >-
             --model ${{ inputs.model }}
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*)"
+            --allowedTools "${{ steps.tools.outputs.list }}"
