@@ -6,6 +6,14 @@ on:
 
 jobs:
   review:
+    # Required: the reusable workflow needs these, and a called workflow cannot be
+    # granted more than the caller holds, so they must be declared here (id-token in
+    # particular is never on by default). Without this the run fails at startup.
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
     uses: Stealth-Labs-LTD/.github/.github/workflows/pr-review.yml@main
     # Optional overrides — the values below are the defaults, shown so you can see
     # the knobs. Delete any line to keep its default.
