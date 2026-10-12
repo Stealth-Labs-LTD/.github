@@ -1,5 +1,12 @@
 name: Release
 
+# Builds, scans, signs and pushes the image to GHCR. It deploys nothing: the
+# caller chooses where the image goes (the "Internal release" template chains
+# deploy-cloud-run.yml, which targets Stealth Labs' own stealthlabs-dev).
+#
+# Do not rename or move this file. Caller repos reference it by path
+# (`.github/workflows/release.yml@main`), so a rename breaks their next tag.
+
 on:
   workflow_call:
     inputs:

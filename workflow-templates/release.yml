@@ -1,4 +1,9 @@
-name: Release
+name: Internal release
+
+# Internal release only. A v* tag builds the image and deploys it to Stealth
+# Labs' own Cloud Run (the stealthlabs-dev project, hard-coded in
+# deploy-cloud-run.yml). Nothing here deploys to a customer's environment;
+# customer deliveries need their own pipeline.
 
 on:
   push:

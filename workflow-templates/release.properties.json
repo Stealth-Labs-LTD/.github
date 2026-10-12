@@ -1,5 +1,5 @@
 {
-  "name": "Release",
-  "description": "Build, scan, sign, push to GHCR, then deploy to Cloud Run",
+  "name": "Internal release (Stealth Labs Cloud Run)",
+  "description": "On a v* tag: build, scan, sign and push to GHCR, then deploy to Stealth Labs' own Cloud Run (stealthlabs-dev). Internal only, never deploys to a customer environment.",
   "categories": ["CI"]
 }
