@@ -60,9 +60,26 @@ jobs:
             url."https://x-access-token:${AI_DEV_KIT_TOKEN}@github.com/Stealth-Labs-LTD".insteadOf \
             "https://github.com/Stealth-Labs-LTD"
 
+      # Billing: by default the org secret PR_REVIEW_ANTHROPIC_API_KEY, an API key from the
+      # Claude Console org that holds the startup credits. A repo that sets its own
+      # CLAUDE_CODE_OAUTH_TOKEN secret opts out and is billed to that subscription instead.
+      # Keep CLAUDE_CODE_OAUTH_TOKEN off the org secrets, or every repo switches to OAuth.
+      # Only one credential is passed, so the action never has to choose between them.
+      - name: Report billing mode
+        env:
+          USE_OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: |
+          if [ "$USE_OAUTH" = "true" ]; then
+            mode="OAuth token (repo secret CLAUDE_CODE_OAUTH_TOKEN)"
+          else
+            mode="API key (org secret PR_REVIEW_ANTHROPIC_API_KEY)"
+          fi
+          echo "Reviewer billed via: $mode" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN == '' && secrets.PR_REVIEW_ANTHROPIC_API_KEY || '' }}
           plugin_marketplaces: "https://github.com/Stealth-Labs-LTD/ai-dev-kit.git"
           plugins: "pr-review@ai-dev-kit"
           prompt: "/pr-review:${{ inputs.persona }} ${{ github.event.pull_request.number }}"
