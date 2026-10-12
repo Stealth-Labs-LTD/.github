@@ -221,6 +221,8 @@ jobs:
 
 Builds a container image, scans with Trivy, pushes to GHCR with semver + SHA tags, signs with Cosign, generates an SBOM with Syft, and attaches it to the image. Language-agnostic — uses whatever Dockerfile is in the repo.
 
+This workflow deploys nothing on its own. Paired with `deploy-cloud-run.yml` (as below, and in the **Internal release** template) it is an internal release to Stealth Labs' own Cloud Run in `stealthlabs-dev`, not a customer deployment. Callers reference this file by path, so don't rename it.
+
 ```yaml
 jobs:
   release:
@@ -251,7 +253,7 @@ Starter workflows available in the GitHub UI under **Actions > New workflow** fo
 | PR checks (Python) | Security scans + Ruff/pytest + Cloud Run preview |
 | PR checks (Node/TypeScript) | Security scans + ESLint/tsc/npm test + Cloud Run preview |
 | PR cleanup | Tears down ephemeral Cloud Run service on PR close |
-| Release | Build, scan, sign, push to GHCR, then deploy to Cloud Run |
+| Internal release (Stealth Labs Cloud Run) | On a `v*` tag: build, scan, sign, push to GHCR, then deploy to Stealth Labs' own Cloud Run (`stealthlabs-dev`). Internal only, never deploys to a customer environment |
 
 ## Starting a new project
 
