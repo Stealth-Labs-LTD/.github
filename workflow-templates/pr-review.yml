@@ -1,5 +1,9 @@
 name: PR review
 
+# The reviewer judges each PR against this repo's root CLAUDE.md (and .claude/rules/). Add one
+# first, or reviews are generic. Which file to use for what:
+# https://github.com/Stealth-Labs-LTD/ai-dev-kit/blob/main/plugins/pr-review/README.md#what-the-reviewer-reads-where-to-put-your-standards
+
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
