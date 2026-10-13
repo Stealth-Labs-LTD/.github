@@ -83,6 +83,9 @@ jobs:
           plugin_marketplaces: "https://github.com/Stealth-Labs-LTD/ai-dev-kit.git"
           plugins: "pr-review@ai-dev-kit"
           prompt: "/pr-review:${{ inputs.persona }} ${{ github.event.pull_request.number }}"
+          # The summary is posted as a comment-only review (gh pr review --comment), so the bot is
+          # listed under Reviewers on every PR. Only --comment is allowed: AI review is advisory and
+          # must never approve or request changes. gh pr comment stays for personas that still use it.
           claude_args: >-
             --model ${{ inputs.model }}
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*)"
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr review --comment:*),Bash(gh pr comment:*)"
