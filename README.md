@@ -253,6 +253,7 @@ Starter workflows available in the GitHub UI under **Actions > New workflow** fo
 | PR checks (Python) | Security scans + Ruff/pytest + Cloud Run preview |
 | PR checks (Node/TypeScript) | Security scans + ESLint/tsc/npm test + Cloud Run preview |
 | PR cleanup | Tears down ephemeral Cloud Run service on PR close |
+| PR review (Stealth Labs) | AI review of every non-draft PR by the `pr-review` plugin from `ai-dev-kit`: line comments plus a summary review, judged against the repo's root `CLAUDE.md`. Advisory only, never blocks a merge. Org secrets cover it, so no setup beyond a `CLAUDE.md` |
 | Internal release (Stealth Labs Cloud Run) | On a `v*` tag: build, scan, sign, push to GHCR, then deploy to Stealth Labs' own Cloud Run (`stealthlabs-dev`). Internal only, never deploys to a customer environment |
 
 ## Starting a new project

@@ -1,0 +1,25 @@
+name: PR review
+
+# Runs the org's AI PR reviewer on this repo's own pull requests. It can't be called pr-review.yml,
+# because that name is the shared reviewer workflow itself. It calls that workflow at @main, so a PR
+# that edits the reviewer is reviewed by the version already on main, never by its own change. The
+# reviewer judges each PR against this repo's root CLAUDE.md.
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+jobs:
+  review:
+    # This repo is public. Pull requests from forks get none of the org secrets, so the reviewer
+    # could not authenticate; skip them rather than fail.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Required: a called workflow cannot be granted more than the caller holds, and id-token is
+    # never on by default. Without this the run fails at startup.
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+    uses: Stealth-Labs-LTD/.github/.github/workflows/pr-review.yml@main
+    secrets: inherit
