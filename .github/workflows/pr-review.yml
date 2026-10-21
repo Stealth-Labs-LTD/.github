@@ -32,6 +32,13 @@ jobs:
     # (they use the separate Dependabot secret store), so the reviewer has no credential and fails.
     # A dependency version bump does not need an AI review in any case.
     if: ${{ github.actor != 'dependabot[bot]' && (inputs.review_drafts || github.event.pull_request.draft == false) }}
+    # One review per PR at a time. A push while a review is running cancels it, so only the newest
+    # commit is reviewed and the PR doesn't get a stale summary next to the fresh one. A cancelled
+    # run never posts its summary (it goes last), but the action's always() step can still post the
+    # inline comments it had buffered. Groups are per repository, so the PR number is enough.
+    concurrency:
+      group: pr-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
