@@ -46,7 +46,7 @@ jobs:
     uses: Stealth-Labs-LTD/.github/.github/workflows/security-baseline.yml@<commit sha>
 ```
 
-**Changing it:** every action and image is pinned to a commit or digest (tags can be moved, as the March 2026 trivy-action hijack showed). The ruleset also pins this file to a commit, so a change takes effect only when the ruleset is updated to the new commit. The ruleset runs in Evaluate mode first, so its Rule Insights show what would fail before it blocks anything.
+**Changing it:** every action is pinned to a commit and the Semgrep image to a digest; the tools some actions fetch (TruffleHog's and OSV-Scanner's images, zizmor and the Trivy binary) are pinned by version. Tags can be moved, as the March 2026 trivy-action hijack showed. The ruleset also pins this file to a commit, so a change takes effect only when the ruleset is updated to the new commit. The ruleset runs in Evaluate mode first, so its Rule Insights show what would fail before it blocks anything.
 
 ## Reusable workflows
 

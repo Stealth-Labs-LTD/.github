@@ -7,9 +7,11 @@
 # request red. Repos add their own, stricter checks alongside it. Per-repo tuning lives in each repo's
 # own files (`.trivyignore`, `nosemgrep` comments, `osv-scanner.toml`), so it is reviewed like any change.
 #
-# Every action and image is pinned to a commit or digest, with its version in a comment. Tags can be
-# moved: in March 2026, 76 of the 77 trivy-action tags were hijacked to steal CI secrets
-# (CVE-2026-33634). Bump pins deliberately, and update the ruleset's pinned commit to match.
+# Every action is pinned to a commit and the Semgrep image to a digest, each with its version in a
+# comment. The tools some actions fetch (TruffleHog's and OSV-Scanner's images, zizmor and the Trivy
+# binary) are pinned by version only. Tags can be moved: in March 2026, 76 of the 77 trivy-action tags
+# were hijacked to steal CI secrets (CVE-2026-33634). Bump pins deliberately, and update the ruleset's
+# pinned commit to match.
 name: Security baseline
 
 on:
@@ -70,7 +72,8 @@ jobs:
   # on vulnerabilities the pull request adds; Dependabot handles the ones already there. Results go to
   # the job log and annotations, as private repos cannot take SARIF without GitHub Code Security. In a
   # merge queue it has no base branch to compare with and reports nothing new, so the pull request run
-  # is the one that counts. Repos with no dependency files pass.
+  # is the one that counts. Repos with no dependency files pass. `security-events: write` is granted only
+  # because OSV-Scanner's reusable workflow declares it on its job; SARIF upload is off.
   dependencies:
     name: dependencies
     permissions:
@@ -97,10 +100,12 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      # Compare the base with the checked-out merge commit, not the branch head, so only the pull
+      # request's own changes count even when its branch is behind the base.
       - name: List changed workflow and action files
         id: changed
         run: |
-          files=$(git diff --name-only --diff-filter=d "$BASE_SHA" "$HEAD_SHA" -- \
+          files=$(git diff --name-only --diff-filter=d "$BASE_SHA" HEAD -- \
             '.github/workflows/*.yml' '.github/workflows/*.yaml' ':(glob)**/action.yml' ':(glob)**/action.yaml' | tr '\n' ' ')
           echo "files=${files}" >> "$GITHUB_OUTPUT"
           echo "Changed: ${files:-none}"
