@@ -22,8 +22,10 @@ on:
 permissions:
   contents: read
 
+# github.workflow keeps the ruleset's run and a repo's own workflow_call run in separate groups, so
+# neither cancels the other.
 concurrency:
-  group: security-baseline-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
+  group: security-baseline-${{ github.workflow }}-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
