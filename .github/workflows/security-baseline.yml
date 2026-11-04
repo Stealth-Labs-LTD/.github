@@ -28,6 +28,10 @@ concurrency:
   group: security-baseline-${{ github.workflow }}-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# The event's base and head. The base recorded on a pull request can be behind the branch it targets,
+# while the checked-out merge commit is built on that branch's current tip, so each job takes its base
+# from the merge commit instead ("Find the base") and falls back to this only where there is no merge
+# commit, as in a merge queue.
 env:
   BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
   HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
@@ -45,9 +49,15 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Find the base
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if git rev-parse -q --verify HEAD^2 >/dev/null; then base=$(git rev-parse HEAD^1); else base="$BASE_SHA"; fi
+          echo "BASE=${base}" >> "$GITHUB_ENV"
+          echo "Comparing with ${base}"
       - uses: trufflesecurity/trufflehog@ea68ca03c865c5f324e86e849ced20ed3cf9dbbb # v3.99.8
         with:
-          base: ${{ env.BASE_SHA }}
+          base: ${{ env.BASE }}
           head: ${{ env.HEAD_SHA }}
           version: 3.99.8
           extra_args: --results=verified,unknown
@@ -65,10 +75,15 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Semgrep
+      - name: Find the base
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          semgrep scan --config p/default --severity ERROR --baseline-commit "$BASE_SHA" --error --metrics off
+          if git rev-parse -q --verify HEAD^2 >/dev/null; then base=$(git rev-parse HEAD^1); else base="$BASE_SHA"; fi
+          echo "BASE=${base}" >> "$GITHUB_ENV"
+          echo "Comparing with ${base}"
+      - name: Semgrep
+        run: |
+          semgrep scan --config p/default --severity ERROR --baseline-commit "$BASE" --error --metrics off
 
   # Known vulnerabilities in dependencies. OSV-Scanner scans the base and the pull request and fails only
   # on vulnerabilities the pull request adds; Dependabot handles the ones already there. Results go to
@@ -102,12 +117,18 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Find the base
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if git rev-parse -q --verify HEAD^2 >/dev/null; then base=$(git rev-parse HEAD^1); else base="$BASE_SHA"; fi
+          echo "BASE=${base}" >> "$GITHUB_ENV"
+          echo "Comparing with ${base}"
       # Compare the base with the checked-out merge commit, not the branch head, so only the pull
       # request's own changes count even when its branch is behind the base.
       - name: List changed workflow and action files
         id: changed
         run: |
-          files=$(git diff --name-only --diff-filter=d "$BASE_SHA" HEAD -- \
+          files=$(git diff --name-only --diff-filter=d "$BASE" HEAD -- \
             '.github/workflows/*.yml' '.github/workflows/*.yaml' ':(glob)**/action.yml' ':(glob)**/action.yaml' | tr '\n' ' ')
           echo "files=${files}" >> "$GITHUB_OUTPUT"
           echo "Changed: ${files:-none}"
@@ -134,8 +155,14 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Find the base
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if git rev-parse -q --verify HEAD^2 >/dev/null; then base=$(git rev-parse HEAD^1); else base="$BASE_SHA"; fi
+          echo "BASE=${base}" >> "$GITHUB_ENV"
+          echo "Comparing with ${base}"
       - name: Check out the base alongside
-        run: git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+        run: git worktree add --detach "$RUNNER_TEMP/base" "$BASE"
       - name: Trivy on the pull request
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
