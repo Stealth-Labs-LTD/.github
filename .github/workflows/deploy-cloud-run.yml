@@ -38,9 +38,35 @@ on:
         required: false
         type: string
         default: ""
+      project_id:
+        description: "GCP project to deploy into. Defaults to the shared dev project. Another project only accepts the deploy if its own identity setup trusts the calling repo (see README: Deploying to another project)."
+        required: false
+        type: string
+        default: "stealthlabs-dev"
+      artifact_repository:
+        description: "Artifact Registry repository (in project_id, europe-west2) that receives the image."
+        required: false
+        type: string
+        default: "services"
+      workload_identity_provider:
+        description: "Keyless login: full Workload Identity Provider name (projects/NUMBER/locations/global/workloadIdentityPools/POOL/providers/PROVIDER). Set with service_account instead of passing GCP_SA_KEY. The caller must grant id-token: write."
+        required: false
+        type: string
+        default: ""
+      service_account:
+        description: "Keyless login: the deploy service account to impersonate through workload_identity_provider."
+        required: false
+        type: string
+        default: ""
+      secret_env:
+        description: "Env vars from Secret Manager in project_id, as comma-separated NAME=SECRET:VERSION pairs (e.g. DATABASE_URL=myapp-database-url:latest). The runtime service account needs Secret Accessor on each secret. A name must not also be set as an APP_ secret."
+        required: false
+        type: string
+        default: ""
     secrets:
       GCP_SA_KEY:
-        required: true
+        description: "Service account key JSON for stealthlabs-dev (org secret). Not needed with keyless login."
+        required: false
       OPENROUTER_API_KEY:
         required: false
       all_secrets:
@@ -48,8 +74,8 @@ on:
         required: false
 
 env:
-  PROJECT_ID: stealthlabs-dev
-  REGISTRY: europe-west2-docker.pkg.dev/stealthlabs-dev/services
+  PROJECT_ID: ${{ inputs.project_id }}
+  REGISTRY: europe-west2-docker.pkg.dev/${{ inputs.project_id }}/${{ inputs.artifact_repository }}
 
 jobs:
   deploy:
@@ -76,10 +102,38 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud
+      # Two ways in: the org's service account key (stealthlabs-dev), or keyless
+      # login through a Workload Identity Provider. Which repos may deploy to a
+      # project is decided by that project's identity setup, not by this file:
+      # any repo can call this workflow, but a project only accepts tokens from
+      # the repos its provider trusts.
+      - name: Check deploy credentials
+        env:
+          HAS_KEY: ${{ secrets.GCP_SA_KEY != '' }}
+          WIF_PROVIDER: ${{ inputs.workload_identity_provider }}
+          WIF_SA: ${{ inputs.service_account }}
+        run: |
+          if [ -n "$WIF_PROVIDER" ] && [ -z "$WIF_SA" ]; then
+            echo "::error::service_account is required with workload_identity_provider"
+            exit 1
+          fi
+          if [ -z "$WIF_PROVIDER" ] && [ "$HAS_KEY" != "true" ]; then
+            echo "::error::Pass the GCP_SA_KEY secret, or the workload_identity_provider and service_account inputs"
+            exit 1
+          fi
+
+      - name: Authenticate to Google Cloud (service account key)
+        if: ${{ inputs.workload_identity_provider == '' }}
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Authenticate to Google Cloud (keyless)
+        if: ${{ inputs.workload_identity_provider != '' }}
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ inputs.workload_identity_provider }}
+          service_account: ${{ inputs.service_account }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -102,6 +156,7 @@ jobs:
         env:
           ALL_SECRETS: ${{ secrets.all_secrets }}
           APP_SECRET_PREFIX: ${{ inputs.app_secret_prefix }}
+          SECRET_ENV: ${{ inputs.secret_env }}
         run: |
           # Build env var list: release metadata first (tag-triggered deploys only),
           # then OpenRouter, then any APP_*-prefixed caller secrets (opt-in via
@@ -146,6 +201,14 @@ jobs:
             SA_FLAG="--service-account=${{ inputs.runtime_service_account }}"
           fi
 
+          # Secret Manager references stay out of the service's plain config.
+          # Whitespace is dropped so callers can list one pair per line.
+          SECRETS_FLAG=""
+          SECRET_ENV=$(printf '%s' "$SECRET_ENV" | tr -d '[:space:]')
+          if [ -n "$SECRET_ENV" ]; then
+            SECRETS_FLAG="--set-secrets=$SECRET_ENV"
+          fi
+
           URL=$(gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image=${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
             --region=${{ inputs.region }} \
@@ -155,6 +218,7 @@ jobs:
             $IAP_FLAG \
             $AUTH_FLAG \
             $SA_FLAG \
+            $SECRETS_FLAG \
             --project=${{ env.PROJECT_ID }} \
             --format='value(status.url)')
           echo "url=$URL" >> "$GITHUB_OUTPUT"
@@ -176,6 +240,8 @@ jobs:
           echo "| | |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
           echo "| **Service** | \`${{ env.SERVICE_NAME }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Project** | \`${{ env.PROJECT_ID }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Login** | ${{ inputs.workload_identity_provider != '' && 'Keyless (Workload Identity)' || 'Service account key' }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **URL** | ${{ steps.deploy.outputs.url }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **Environment** | \`${{ github.event_name == 'pull_request' && 'preview' || 'production' }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **Region** | \`${{ inputs.region }}\` |" >> "$GITHUB_STEP_SUMMARY"
