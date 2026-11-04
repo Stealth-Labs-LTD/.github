@@ -196,6 +196,11 @@ For PR previews on the same app, use a separate runtime SA scoped to the preview
 ```yaml
 jobs:
   deploy:
+    # Keyless login needs an OIDC token from GitHub: without id-token: write
+    # the auth step fails.
+    permissions:
+      contents: read
+      id-token: write
     uses: Stealth-Labs-LTD/.github/.github/workflows/deploy-cloud-run.yml@<commit-sha>
     with:
       project_id: my-other-project
