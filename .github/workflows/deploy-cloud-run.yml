@@ -59,7 +59,7 @@ on:
         type: string
         default: ""
       secret_env:
-        description: "Env vars from Secret Manager in project_id, as comma-separated NAME=SECRET:VERSION pairs (e.g. DATABASE_URL=myapp-database-url:latest). The runtime service account needs Secret Accessor on each secret. A name must not also be set as an APP_ secret."
+        description: "Env vars from Secret Manager in project_id, as NAME=SECRET:VERSION pairs separated by commas or new lines (e.g. DATABASE_URL=myapp-database-url:latest). The runtime service account needs Secret Accessor on each secret. A name must not also be set as an APP_ secret."
         required: false
         type: string
         default: ""
@@ -202,9 +202,10 @@ jobs:
           fi
 
           # Secret Manager references stay out of the service's plain config.
-          # Whitespace is dropped so callers can list one pair per line.
+          # Pairs can be separated by commas or new lines: new lines become
+          # commas, other whitespace is dropped, and empty pairs are removed.
           SECRETS_FLAG=""
-          SECRET_ENV=$(printf '%s' "$SECRET_ENV" | tr -d '[:space:]')
+          SECRET_ENV=$(printf '%s' "$SECRET_ENV" | tr '\n' ',' | tr -d '[:space:]' | sed -e 's/,,*/,/g' -e 's/^,//' -e 's/,$//')
           if [ -n "$SECRET_ENV" ]; then
             SECRETS_FLAG="--set-secrets=$SECRET_ENV"
           fi
@@ -227,11 +228,16 @@ jobs:
         if: ${{ !inputs.public }}
         run: |
           PROJECT_NUMBER=$(gcloud projects describe ${{ env.PROJECT_ID }} --format='value(projectNumber)')
-          gcloud run services add-iam-policy-binding ${{ env.SERVICE_NAME }} \
+          # Doesn't fail the deploy, but says so: without this binding IAP can't
+          # reach the service. The deploy account needs run.services.setIamPolicy
+          # (Cloud Run Admin has it).
+          if ! gcloud run services add-iam-policy-binding ${{ env.SERVICE_NAME }} \
             --region=${{ inputs.region }} \
             --project=${{ env.PROJECT_ID }} \
             --member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-iap.iam.gserviceaccount.com" \
-            --role=roles/run.invoker 2>/dev/null || true
+            --role=roles/run.invoker --format=none; then
+            echo "::warning::Couldn't give the IAP service agent run.invoker on ${{ env.SERVICE_NAME }}. IAP requests will fail until it's granted."
+          fi
 
       - name: Job summary
         run: |

@@ -209,6 +209,11 @@ jobs:
 
 - Give the provider an attribute condition naming the repos (and environment) allowed in, using IDs rather than names, for example `assertion.repository_owner_id == "<org id>" && assertion.repository_id == "<repo id>" && assertion.environment == "production"`.
 - Grant the deploy SA only to that principal set. Never give the shared dev deploy account (`github-deployer@…`) or broad engineering groups any role there.
+- **The deploy SA needs:**
+  - Cloud Run Admin (`roles/run.admin`) in the project. This covers deploying, reading the project number, and the IAP step's `run.invoker` grant. Without that grant, IAP-protected services can't be reached; the workflow warns rather than fails.
+  - Artifact Registry Writer on the repository.
+  - Service Account User on the runtime SA.
+- **The runtime SA needs** Secret Accessor on each secret in `secret_env`.
 - Pin the workflow to a commit SHA rather than `@main`, so changes here reach that project only when its owners update the pin.
 
 ### cleanup-cloud-run.yml
