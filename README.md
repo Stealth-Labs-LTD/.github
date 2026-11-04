@@ -100,7 +100,7 @@ jobs:
 | `artifact_repository` | `services` | Artifact Registry repository in `project_id` (europe-west2) for the image. |
 | `workload_identity_provider` | (unset) | Keyless login instead of `GCP_SA_KEY`: the full Workload Identity Provider name. Set with `service_account`. The caller must grant `id-token: write`. |
 | `service_account` | (unset) | Keyless login: the deploy service account to impersonate. |
-| `secret_env` | (unset) | Env vars read from Secret Manager in `project_id`, as `NAME=SECRET:VERSION` pairs separated by commas. Keeps them out of the service's plain config. The runtime SA needs Secret Accessor on each. Don't also set the same name as an `APP_` secret. |
+| `secret_env` | (unset) | Env vars read from Secret Manager in `project_id`, as `NAME=SECRET:VERSION` pairs separated by commas or new lines. Keeps them out of the service's plain config. The runtime SA needs Secret Accessor on each. Don't also set the same name as an `APP_` secret. |
 
 **Secrets:**
 | Secret | Required | Description |

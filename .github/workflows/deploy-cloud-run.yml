@@ -117,6 +117,10 @@ jobs:
             echo "::error::service_account is required with workload_identity_provider"
             exit 1
           fi
+          if [ -z "$WIF_PROVIDER" ] && [ -n "$WIF_SA" ]; then
+            echo "::error::service_account only applies to keyless login: set workload_identity_provider too, or remove service_account"
+            exit 1
+          fi
           if [ -z "$WIF_PROVIDER" ] && [ "$HAS_KEY" != "true" ]; then
             echo "::error::Pass the GCP_SA_KEY secret, or the workload_identity_provider and service_account inputs"
             exit 1
