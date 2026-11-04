@@ -17,13 +17,44 @@ Org-wide defaults and reusable workflows for all Stealth Labs repositories.
 | `workflow-templates/` | Starter workflows shown in the GitHub UI (Actions > New workflow) |
 | `profile/` | The public org page at github.com/Stealth-Labs-LTD. Banners are rendered by `profile/assets/src/render.sh`. The members-only page lives in `.github-private` |
 
+## Required on every pull request: security-baseline.yml
+
+`.github/workflows/security-baseline.yml` is the security floor for the org. The `security-baseline` org ruleset requires it on pull requests to the default branch, so repos don't add it themselves and can't switch it off. Repos add their own, stricter checks alongside it.
+
+It works on any stack with no set-up, and it **blocks only on problems a pull request adds**: every job compares the pull request with its base, so existing issues never turn an unrelated pull request red.
+
+| Check | Tool | Fails when the pull request adds |
+|-------|------|----------------------------------|
+| `secrets` | TruffleHog | a live (or unverifiable) secret in its commits |
+| `code` | Semgrep, default rules | a high-severity finding |
+| `dependencies` | OSV-Scanner | a dependency with a known vulnerability |
+| `workflows` | zizmor | a high-severity issue in a workflow or action file it adds or changes |
+| `infrastructure` | Trivy | a high or critical misconfiguration in Terraform, Dockerfiles, Kubernetes, Helm, CloudFormation or ARM (not Bicep) |
+
+**Tuning a repo**, in the repo's own files so changes are reviewed: `nosemgrep` comments for Semgrep, `.trivyignore` for Trivy, `osv-scanner.toml` for OSV-Scanner. Results are in the job logs and annotations: private repos can't show them in the Security tab without GitHub Code Security.
+
+**Trying it in a repo before the ruleset applies:**
+
+```yaml
+on: pull_request
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+jobs:
+  baseline:
+    uses: Stealth-Labs-LTD/.github/.github/workflows/security-baseline.yml@<commit sha>
+```
+
+**Changing it:** every action is pinned to a commit and the Semgrep image to a digest; the tools some actions fetch (TruffleHog's and OSV-Scanner's images, zizmor and the Trivy binary) are pinned by version. Tags can be moved, as the March 2026 trivy-action hijack showed. The ruleset also pins this file to a commit, so a change takes effect only when the ruleset is updated to the new commit. The ruleset runs in Evaluate mode first, so its Rule Insights show what would fail before it blocks anything.
+
 ## Reusable workflows
 
 These live in `.github/workflows/` and are called via `workflow_call` from each repo's own workflow files.
 
 ### security-scans.yml
 
-Runs Semgrep SAST, TruffleHog secret scanning, and Trivy scans (dependencies, infra config, container image). Language-agnostic.
+Runs Semgrep SAST, TruffleHog secret scanning, and Trivy scans (dependencies, infra config, container image). Language-agnostic. This is an opt-in, stricter set that scans the whole repo; the required floor is `security-baseline.yml` above.
 
 ```yaml
 jobs:

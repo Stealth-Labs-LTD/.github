@@ -1,0 +1,202 @@
+# Security baseline: the checks every pull request must pass, required org-wide by the
+# `security-baseline` org ruleset. It can also be called with workflow_call, to try it in a repo
+# before the ruleset applies there.
+#
+# It has to work on any stack with no set-up, and it blocks only on problems a pull request adds:
+# every job compares the pull request with its base, so existing issues never turn an unrelated pull
+# request red. Repos add their own, stricter checks alongside it. Per-repo tuning lives in each repo's
+# own files (`.trivyignore`, `nosemgrep` comments, `osv-scanner.toml`), so it is reviewed like any change.
+#
+# Every action is pinned to a commit and the Semgrep image to a digest, each with its version in a
+# comment. The tools some actions fetch (TruffleHog's and OSV-Scanner's images, zizmor and the Trivy
+# binary) are pinned by version only. Tags can be moved: in March 2026, 76 of the 77 trivy-action tags
+# were hijacked to steal CI secrets (CVE-2026-33634). Bump pins deliberately, and update the ruleset's
+# pinned commit to match.
+name: Security baseline
+
+on:
+  pull_request:
+  merge_group:
+  workflow_call:
+
+permissions:
+  contents: read
+
+# github.workflow keeps the ruleset's run and a repo's own workflow_call run in separate groups, so
+# neither cancels the other.
+concurrency:
+  group: security-baseline-${{ github.workflow }}-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# The event's base and head. The base recorded on a pull request can be behind the branch it targets,
+# while the checked-out merge commit is built on that branch's current tip, so each job takes its base
+# from the merge commit instead ("Find the base") and falls back to this only where there is no merge
+# commit, as in a merge queue.
+env:
+  BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+  HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+
+jobs:
+  # Live and unverifiable secrets in the pull request's commits. Keys that fail verification, such as
+  # revoked keys or test fixtures, are not reported. The org push ruleset and the repo-guardrails hook
+  # catch secret files and known key formats earlier.
+  secrets:
+    name: secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Find the base
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if git rev-parse -q --verify HEAD^2 >/dev/null; then base=$(git rev-parse HEAD^1); else base="$BASE_SHA"; fi
+          echo "BASE=${base}" >> "$GITHUB_ENV"
+          echo "Comparing with ${base}"
+      - uses: trufflesecurity/trufflehog@ea68ca03c865c5f324e86e849ced20ed3cf9dbbb # v3.99.8
+        with:
+          base: ${{ env.BASE }}
+          head: ${{ env.HEAD_SHA }}
+          version: 3.99.8
+          extra_args: --results=verified,unknown
+
+  # Semgrep's default rules, high severity only, and only the findings the pull request adds. Mark a
+  # checked false positive with a `nosemgrep` comment.
+  code:
+    name: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: semgrep/semgrep@sha256:2e45517a85e13a9cca14a2a00df6bb48affd66b8ebfae1b0991cd57578362fb0 # 1.183.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Find the base
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if git rev-parse -q --verify HEAD^2 >/dev/null; then base=$(git rev-parse HEAD^1); else base="$BASE_SHA"; fi
+          echo "BASE=${base}" >> "$GITHUB_ENV"
+          echo "Comparing with ${base}"
+      - name: Semgrep
+        run: |
+          semgrep scan --config p/default --severity ERROR --baseline-commit "$BASE" --error --metrics off
+
+  # Known vulnerabilities in dependencies. OSV-Scanner scans the base and the pull request and fails only
+  # on vulnerabilities the pull request adds; Dependabot handles the ones already there. Results go to
+  # the job log and annotations, as private repos cannot take SARIF without GitHub Code Security. In a
+  # merge queue it has no base branch to compare with and reports nothing new, so the pull request run
+  # is the one that counts. Repos with no dependency files pass. `security-events: write` is granted only
+  # because OSV-Scanner's reusable workflow declares it on its job; SARIF upload is off.
+  dependencies:
+    name: dependencies
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+    with:
+      upload-sarif: false
+      scan-args: |-
+        --recursive
+        --allow-no-lockfiles
+        ./
+
+  # GitHub Actions security (script injection, risky triggers, over-broad permissions, unpinned
+  # actions). Only workflow and action files the pull request adds or changes are audited, high
+  # severity only.
+  workflows:
+    name: workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Find the base
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if git rev-parse -q --verify HEAD^2 >/dev/null; then base=$(git rev-parse HEAD^1); else base="$BASE_SHA"; fi
+          echo "BASE=${base}" >> "$GITHUB_ENV"
+          echo "Comparing with ${base}"
+      # Compare the base with the checked-out merge commit, not the branch head, so only the pull
+      # request's own changes count even when its branch is behind the base.
+      - name: List changed workflow and action files
+        id: changed
+        run: |
+          files=$(git diff --name-only --diff-filter=d "$BASE" HEAD -- \
+            '.github/workflows/*.yml' '.github/workflows/*.yaml' ':(glob)**/action.yml' ':(glob)**/action.yaml' | tr '\n' ' ')
+          echo "files=${files}" >> "$GITHUB_OUTPUT"
+          echo "Changed: ${files:-none}"
+      - name: zizmor
+        if: steps.changed.outputs.files != ''
+        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          inputs: ${{ steps.changed.outputs.files }}
+          version: 1.32.0
+          min-severity: high
+          advanced-security: false
+          fail-on-no-inputs: false
+
+  # High and critical misconfigurations in infrastructure files: Terraform, Dockerfiles, Kubernetes,
+  # Helm, CloudFormation and ARM templates (Trivy does not read Bicep). Trivy scans the base and the
+  # pull request, and the job fails only on findings the pull request adds. Accept a checked finding
+  # in the repo's `.trivyignore`.
+  infrastructure:
+    name: infrastructure
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Find the base
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if git rev-parse -q --verify HEAD^2 >/dev/null; then base=$(git rev-parse HEAD^1); else base="$BASE_SHA"; fi
+          echo "BASE=${base}" >> "$GITHUB_ENV"
+          echo "Comparing with ${base}"
+      - name: Check out the base alongside
+        run: git worktree add --detach "$RUNNER_TEMP/base" "$BASE"
+      - name: Trivy on the pull request
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.70.0
+          scan-type: config
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          format: json
+          output: ${{ runner.temp }}/head.json
+          exit-code: "0"
+          hide-progress: true
+          cache-dir: ${{ runner.temp }}/trivy-cache
+      - name: Trivy on the base
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.70.0
+          skip-setup-trivy: true
+          scan-type: config
+          scan-ref: ${{ runner.temp }}/base
+          severity: HIGH,CRITICAL
+          format: json
+          output: ${{ runner.temp }}/base.json
+          exit-code: "0"
+          hide-progress: true
+          cache-dir: ${{ runner.temp }}/trivy-cache
+      - name: Fail on misconfigurations the pull request adds
+        run: |
+          list() { jq -r '.Results[]? | .Target as $t | .Misconfigurations[]? | "\($t)\t\(.ID)\t\(.Severity)\t\(.Title)"' "$1" | sort -u; }
+          list "$RUNNER_TEMP/head.json" > "$RUNNER_TEMP/head.txt"
+          list "$RUNNER_TEMP/base.json" > "$RUNNER_TEMP/base.txt"
+          comm -23 "$RUNNER_TEMP/head.txt" "$RUNNER_TEMP/base.txt" > "$RUNNER_TEMP/new.txt"
+          if [ -s "$RUNNER_TEMP/new.txt" ]; then
+            echo "::error::This pull request adds high or critical infrastructure misconfigurations (file, check, severity, title):"
+            cat "$RUNNER_TEMP/new.txt"
+            exit 1
+          fi
+          echo "No new high or critical infrastructure misconfigurations."
