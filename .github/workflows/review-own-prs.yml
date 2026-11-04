@@ -1,0 +1,26 @@
+name: PR review
+
+# Runs the shared AI review on this repo's own pull requests. Other repos call
+# pr-review.yml from their own workflow; this repo had no caller, so its PRs
+# were never reviewed. The Claude action only runs when the triggering workflow
+# matches the copy on main, so a PR that adds or edits this file gets no review.
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+jobs:
+  review:
+    # This repo is public: pull requests from forks get no secrets, so skip them
+    # rather than fail.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+    uses: ./.github/workflows/pr-review.yml
+    with:
+      model: claude-opus-4-8
+      persona: stealth-labs
+      review_drafts: false
+    secrets: inherit
