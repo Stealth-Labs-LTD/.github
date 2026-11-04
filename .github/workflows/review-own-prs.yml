@@ -2,8 +2,8 @@ name: PR review
 
 # Runs the shared AI review on this repo's own pull requests. Other repos call
 # pr-review.yml from their own workflow; this repo had no caller, so its PRs
-# were never reviewed. The local path means a PR that changes the reviewer is
-# reviewed by its own version.
+# were never reviewed. The Claude action only runs when the triggering workflow
+# matches the copy on main, so a PR that adds or edits this file gets no review.
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
