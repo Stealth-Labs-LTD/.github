@@ -38,9 +38,35 @@ on:
         required: false
         type: string
         default: ""
+      project_id:
+        description: "GCP project to deploy into. Defaults to the shared dev project. Another project only accepts the deploy if its own identity setup trusts the calling repo (see README: Deploying to another project)."
+        required: false
+        type: string
+        default: "stealthlabs-dev"
+      artifact_repository:
+        description: "Artifact Registry repository (in project_id, europe-west2) that receives the image."
+        required: false
+        type: string
+        default: "services"
+      workload_identity_provider:
+        description: "Keyless login: full Workload Identity Provider name (projects/NUMBER/locations/global/workloadIdentityPools/POOL/providers/PROVIDER). Set with service_account instead of passing GCP_SA_KEY. The caller must grant id-token: write."
+        required: false
+        type: string
+        default: ""
+      service_account:
+        description: "Keyless login: the deploy service account to impersonate through workload_identity_provider."
+        required: false
+        type: string
+        default: ""
+      secret_env:
+        description: "Env vars from Secret Manager in project_id, as NAME=SECRET:VERSION pairs separated by commas or new lines (e.g. DATABASE_URL=myapp-database-url:latest). The runtime service account needs Secret Accessor on each secret. A name must not also be set as an APP_ secret."
+        required: false
+        type: string
+        default: ""
     secrets:
       GCP_SA_KEY:
-        required: true
+        description: "Service account key JSON for stealthlabs-dev (org secret). Not needed with keyless login."
+        required: false
       OPENROUTER_API_KEY:
         required: false
       all_secrets:
@@ -48,8 +74,8 @@ on:
         required: false
 
 env:
-  PROJECT_ID: stealthlabs-dev
-  REGISTRY: europe-west2-docker.pkg.dev/stealthlabs-dev/services
+  PROJECT_ID: ${{ inputs.project_id }}
+  REGISTRY: europe-west2-docker.pkg.dev/${{ inputs.project_id }}/${{ inputs.artifact_repository }}
 
 jobs:
   deploy:
@@ -73,35 +99,79 @@ jobs:
     env:
       SERVICE_NAME: ${{ inputs.service_name || github.event.repository.name }}
     steps:
+      # Actions are pinned to commits, and run scripts read inputs, secrets and
+      # outputs only through env vars, never ${{ }} inside the script.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+      # Two ways in: the org's service account key (stealthlabs-dev), or keyless
+      # login through a Workload Identity Provider. Which repos may deploy to a
+      # project is decided by that project's identity setup, not by this file:
+      # any repo can call this workflow, but a project only accepts tokens from
+      # the repos its provider trusts.
+      - name: Check deploy credentials
+        env:
+          HAS_KEY: ${{ secrets.GCP_SA_KEY != '' }}
+          WIF_PROVIDER: ${{ inputs.workload_identity_provider }}
+          WIF_SA: ${{ inputs.service_account }}
+        run: |
+          if [ -n "$WIF_PROVIDER" ] && [ -z "$WIF_SA" ]; then
+            echo "::error::service_account is required with workload_identity_provider"
+            exit 1
+          fi
+          if [ -z "$WIF_PROVIDER" ] && [ -n "$WIF_SA" ]; then
+            echo "::error::service_account only applies to keyless login: set workload_identity_provider too, or remove service_account"
+            exit 1
+          fi
+          if [ -z "$WIF_PROVIDER" ] && [ "$HAS_KEY" != "true" ]; then
+            echo "::error::Pass the GCP_SA_KEY secret, or the workload_identity_provider and service_account inputs"
+            exit 1
+          fi
+
+      - name: Authenticate to Google Cloud (service account key)
+        if: ${{ inputs.workload_identity_provider == '' }}
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
+      - name: Authenticate to Google Cloud (keyless)
+        if: ${{ inputs.workload_identity_provider != '' }}
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ inputs.workload_identity_provider }}
+          service_account: ${{ inputs.service_account }}
+
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f # v2.2.1
 
       - name: Configure Docker
         run: gcloud auth configure-docker europe-west2-docker.pkg.dev --quiet
 
       - name: Build Docker image
+        env:
+          DOCKERFILE: ${{ inputs.dockerfile }}
         run: |
           docker build \
-            -t ${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
-            -f ${{ inputs.dockerfile }} .
+            -t "$REGISTRY/$SERVICE_NAME:$GITHUB_SHA" \
+            -f "$DOCKERFILE" .
 
       - name: Push Docker image
         run: |
-          docker push ${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
+          docker push "$REGISTRY/$SERVICE_NAME:$GITHUB_SHA"
 
       - name: Deploy to Cloud Run
         id: deploy
         env:
           ALL_SECRETS: ${{ secrets.all_secrets }}
           APP_SECRET_PREFIX: ${{ inputs.app_secret_prefix }}
+          SECRET_ENV: ${{ inputs.secret_env }}
+          OPENROUTER_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          DEPLOY_REGION: ${{ inputs.region }}
+          DEPLOY_PORT: ${{ inputs.port }}
+          PUBLIC: ${{ inputs.public }}
+          RUNTIME_SA: ${{ inputs.runtime_service_account }}
         run: |
           # Build env var list: release metadata first (tag-triggered deploys only),
           # then OpenRouter, then any APP_*-prefixed caller secrets (opt-in via
@@ -116,8 +186,8 @@ jobs:
             ENV_VARS_LIST="APP_VERSION=${GITHUB_REF_NAME}|APP_SHA=${GITHUB_SHA}|APP_REPO=${GITHUB_REPOSITORY}"
           fi
 
-          if [ -n "${{ secrets.OPENROUTER_API_KEY }}" ]; then
-            ENV_VARS_LIST="${ENV_VARS_LIST:+$ENV_VARS_LIST|}OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}"
+          if [ -n "$OPENROUTER_KEY" ]; then
+            ENV_VARS_LIST="${ENV_VARS_LIST:+$ENV_VARS_LIST|}OPENROUTER_API_KEY=$OPENROUTER_KEY"
           fi
 
           if [ -n "$ALL_SECRETS" ]; then
@@ -132,53 +202,81 @@ jobs:
             fi
           fi
 
+          # Optional flags go in an array so no value is ever split on spaces.
+          ARGS=()
           if [ -n "$ENV_VARS_LIST" ]; then
-            ENV_VARS="--set-env-vars=^|^$ENV_VARS_LIST"
+            ARGS+=("--set-env-vars=^|^$ENV_VARS_LIST")
+          fi
+
+          if [ "$PUBLIC" = "true" ]; then
+            ARGS+=(--no-iap --allow-unauthenticated)
           else
-            ENV_VARS=""
+            ARGS+=(--iap --no-allow-unauthenticated)
           fi
 
-          IAP_FLAG="${{ inputs.public && '--no-iap' || '--iap' }}"
-          AUTH_FLAG="${{ inputs.public && '--allow-unauthenticated' || '--no-allow-unauthenticated' }}"
-
-          SA_FLAG=""
-          if [ -n "${{ inputs.runtime_service_account }}" ]; then
-            SA_FLAG="--service-account=${{ inputs.runtime_service_account }}"
+          if [ -n "$RUNTIME_SA" ]; then
+            ARGS+=("--service-account=$RUNTIME_SA")
           fi
 
-          URL=$(gcloud run deploy ${{ env.SERVICE_NAME }} \
-            --image=${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
-            --region=${{ inputs.region }} \
-            --port=${{ inputs.port }} \
+          # Secret Manager references stay out of the service's plain config.
+          # Pairs can be separated by commas or new lines: new lines become
+          # commas, other whitespace is dropped, and empty pairs are removed.
+          SECRET_ENV=$(printf '%s' "$SECRET_ENV" | tr '\n' ',' | tr -d '[:space:]' | sed -e 's/,,*/,/g' -e 's/^,//' -e 's/,$//')
+          if [ -n "$SECRET_ENV" ]; then
+            ARGS+=("--set-secrets=$SECRET_ENV")
+          fi
+
+          URL=$(gcloud run deploy "$SERVICE_NAME" \
+            --image="$REGISTRY/$SERVICE_NAME:$GITHUB_SHA" \
+            --region="$DEPLOY_REGION" \
+            --port="$DEPLOY_PORT" \
             --platform=managed \
-            $ENV_VARS \
-            $IAP_FLAG \
-            $AUTH_FLAG \
-            $SA_FLAG \
-            --project=${{ env.PROJECT_ID }} \
+            "${ARGS[@]}" \
+            --project="$PROJECT_ID" \
             --format='value(status.url)')
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
+      # Never fails the deploy, but says so: without this binding IAP can't reach
+      # the service. The deploy account needs resourcemanager.projects.get and
+      # run.services.setIamPolicy (Cloud Run Admin has both).
       - name: Grant IAP service agent access
         if: ${{ !inputs.public }}
+        env:
+          DEPLOY_REGION: ${{ inputs.region }}
         run: |
-          PROJECT_NUMBER=$(gcloud projects describe ${{ env.PROJECT_ID }} --format='value(projectNumber)')
-          gcloud run services add-iam-policy-binding ${{ env.SERVICE_NAME }} \
-            --region=${{ inputs.region }} \
-            --project=${{ env.PROJECT_ID }} \
+          if ! PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)'); then
+            echo "::warning::Couldn't read the project number of $PROJECT_ID, so the IAP service agent wasn't given run.invoker on $SERVICE_NAME. IAP requests will fail until it is."
+            exit 0
+          fi
+          if ! gcloud run services add-iam-policy-binding "$SERVICE_NAME" \
+            --region="$DEPLOY_REGION" \
+            --project="$PROJECT_ID" \
             --member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-iap.iam.gserviceaccount.com" \
-            --role=roles/run.invoker 2>/dev/null || true
+            --role=roles/run.invoker --format=none; then
+            echo "::warning::Couldn't give the IAP service agent run.invoker on $SERVICE_NAME. IAP requests will fail until it's granted."
+          fi
 
       - name: Job summary
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+          DEPLOY_ENVIRONMENT: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
+          DEPLOY_REGION: ${{ inputs.region }}
+          LOGIN: ${{ inputs.workload_identity_provider != '' && 'Keyless (Workload Identity)' || 'Service account key' }}
+          ACCESS: ${{ inputs.public && 'Public (no IAP)' || 'IAP protected (team only)' }}
+          RUNTIME_SA: ${{ inputs.runtime_service_account || 'default Compute SA' }}
         run: |
-          echo "## Deployed to Cloud Run" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| | |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| **Service** | \`${{ env.SERVICE_NAME }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| **URL** | ${{ steps.deploy.outputs.url }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| **Environment** | \`${{ github.event_name == 'pull_request' && 'preview' || 'production' }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| **Region** | \`${{ inputs.region }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| **Image** | \`${{ env.SERVICE_NAME }}:${{ github.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| **Auth** | ${{ inputs.public && 'Public (no IAP)' || 'IAP protected (team only)' }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| **Runtime SA** | ${{ inputs.runtime_service_account || 'default Compute SA' }} |" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Deployed to Cloud Run"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| **Service** | \`$SERVICE_NAME\` |"
+            echo "| **Project** | \`$PROJECT_ID\` |"
+            echo "| **Login** | $LOGIN |"
+            echo "| **URL** | $DEPLOY_URL |"
+            echo "| **Environment** | \`$DEPLOY_ENVIRONMENT\` |"
+            echo "| **Region** | \`$DEPLOY_REGION\` |"
+            echo "| **Image** | \`$SERVICE_NAME:$GITHUB_SHA\` |"
+            echo "| **Auth** | $ACCESS |"
+            echo "| **Runtime SA** | $RUNTIME_SA |"
+          } >> "$GITHUB_STEP_SUMMARY"

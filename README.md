@@ -127,11 +127,16 @@ jobs:
 | `public` | `false` | Set `true` to disable IAP (customer-facing apps). Default is IAP-protected — only `@stealthlabs.uk` Google accounts can access. |
 | `app_secret_prefix` | `APP_` | Repo secrets starting with this prefix are auto-injected as env vars (prefix stripped). |
 | `runtime_service_account` | (unset) | Cloud Run runtime SA email. Set when the app authenticates to GCP APIs at runtime. See "Runtime service account" below. |
+| `project_id` | `stealthlabs-dev` | GCP project to deploy into. See "Deploying to another project" below. |
+| `artifact_repository` | `services` | Artifact Registry repository in `project_id` (europe-west2) for the image. |
+| `workload_identity_provider` | (unset) | Keyless login instead of `GCP_SA_KEY`: the full Workload Identity Provider name. Set with `service_account`. The caller must grant `id-token: write`. |
+| `service_account` | (unset) | Keyless login: the deploy service account to impersonate. |
+| `secret_env` | (unset) | Env vars read from Secret Manager in `project_id`, as `NAME=SECRET:VERSION` pairs separated by commas or new lines. Keeps them out of the service's plain config. The runtime SA needs Secret Accessor on each. Don't also set the same name as an `APP_` secret. |
 
 **Secrets:**
 | Secret | Required | Description |
 |--------|----------|-------------|
-| `GCP_SA_KEY` | Yes | GCP service account key JSON (inherited from org secrets). |
+| `GCP_SA_KEY` | Unless keyless | GCP service account key JSON for `stealthlabs-dev` (inherited from org secrets). Not needed when `workload_identity_provider` is set. |
 | `OPENROUTER_API_KEY` | No | OpenRouter key (inherited from org secrets). Injected as an env var. |
 | `all_secrets` | No | Pass `${{ toJSON(secrets) }}` from the caller to auto-inject `APP_*` repo secrets. |
 
@@ -214,6 +219,38 @@ gcloud projects add-iam-policy-binding stealthlabs-dev \
 The `github-deployer@…` SA already has `roles/iam.serviceAccountUser` at project level, so no additional per-SA binding is needed for the deploy workflow to attach the runtime SA.
 
 For PR previews on the same app, use a separate runtime SA scoped to the preview environment (e.g. `myapp-preview@…`) so previews can be granted different (typically smaller) roles than prod.
+
+#### Deploying to another project
+
+`stealthlabs-dev` is the default and the right place for almost everything. A few apps run in their own project, which needs keyless login:
+
+```yaml
+jobs:
+  deploy:
+    # Keyless login needs an OIDC token from GitHub: without id-token: write
+    # the auth step fails.
+    permissions:
+      contents: read
+      id-token: write
+    uses: Stealth-Labs-LTD/.github/.github/workflows/deploy-cloud-run.yml@<commit-sha>
+    with:
+      project_id: my-other-project
+      workload_identity_provider: projects/123456789/locations/global/workloadIdentityPools/github/providers/github
+      service_account: myapp-deployer@my-other-project.iam.gserviceaccount.com
+      runtime_service_account: myapp-runtime@my-other-project.iam.gserviceaccount.com
+      secret_env: DATABASE_URL=myapp-database-url:latest
+```
+
+**Who can deploy is decided in the target project, not in this workflow.** Any repo can call this workflow with any `project_id`. The project only accepts the deploy if its Workload Identity Provider trusts the token GitHub issued to the calling repo. So in that project:
+
+- Give the provider an attribute condition naming the repos (and environment) allowed in, using IDs rather than names, for example `assertion.repository_owner_id == "<org id>" && assertion.repository_id == "<repo id>" && assertion.environment == "production"`.
+- Grant the deploy SA only to that principal set. Never give the shared dev deploy account (`github-deployer@…`) or broad engineering groups any role there.
+- **The deploy SA needs:**
+  - Cloud Run Admin (`roles/run.admin`) in the project. This covers deploying, reading the project number, and the IAP step's `run.invoker` grant. Without that grant, IAP-protected services can't be reached; the workflow warns rather than fails.
+  - Artifact Registry Writer on the repository.
+  - Service Account User on the runtime SA.
+- **The runtime SA needs** Secret Accessor on each secret in `secret_env`.
+- Pin the workflow to a commit SHA rather than `@main`, so changes here reach that project only when its owners update the pin.
 
 ### cleanup-cloud-run.yml
 
