@@ -7,6 +7,11 @@
 # request red. Repos add their own, stricter checks alongside it. Per-repo tuning lives in each repo's
 # own files (`.trivyignore`, `nosemgrep` comments, `osv-scanner.toml`), so it is reviewed like any change.
 #
+# Existing issues are still shown, without failing anything: the high and critical issues already on
+# the base branch that the pull request leaves in place are listed in the run summary, with a warning
+# on the check, for dependencies, code, workflow files and infrastructure. Existing secrets aren't
+# listed, because finding them takes a scan of the whole history.
+#
 # Every action is pinned to a commit and the Semgrep image to a digest, each with its version in a
 # comment. The tools some actions fetch (TruffleHog's and OSV-Scanner's images, zizmor and the Trivy
 # binary) are pinned by version only. Tags can be moved: in March 2026, 76 of the 77 trivy-action tags
@@ -35,6 +40,8 @@ concurrency:
 env:
   BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
   HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+  # The branch the pull request targets, named in the reports of issues already there.
+  BASE_NAME: ${{ github.base_ref || 'the base branch' }}
 
 jobs:
   # Live and unverifiable secrets in the pull request's commits. Keys that fail verification, such as
@@ -81,9 +88,47 @@ jobs:
           if git rev-parse -q --verify HEAD^2 >/dev/null; then base=$(git rev-parse HEAD^1); else base="$BASE_SHA"; fi
           echo "BASE=${base}" >> "$GITHUB_ENV"
           echo "Comparing with ${base}"
+      - name: Semgrep on the whole pull request, for the report below
+        continue-on-error: true
+        run: |
+          semgrep scan --config p/default --severity ERROR --metrics off --exclude .github/workflows --quiet --json --output "$RUNNER_TEMP/all.json"
       - name: Semgrep
         run: |
-          semgrep scan --config p/default --severity ERROR --baseline-commit "$BASE" --error --metrics off --exclude .github/workflows
+          semgrep scan --config p/default --severity ERROR --baseline-commit "$BASE" --error --metrics off --exclude .github/workflows \
+            --json-output="$RUNNER_TEMP/new.json"
+      # Report only: every finding in the pull request that the step above doesn't report as new.
+      - name: List findings already on the base branch (report only)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: python3 {0}
+        run: |
+          import json, os
+          tmp, base = os.environ["RUNNER_TEMP"], os.environ["BASE_NAME"]
+          def load(name):
+              try:
+                  return json.load(open(os.path.join(tmp, name)))["results"]
+              except (OSError, ValueError, KeyError):
+                  return None
+          found, new = load("all.json"), load("new.json") or []
+          if found is None:
+              print("The full scan didn't finish, so there's nothing to report.")
+              raise SystemExit(0)
+          key = lambda r: (r["check_id"], r["path"], r["start"]["line"], r["start"]["col"])
+          added = {key(r) for r in new}
+          rows = sorted((r for r in found if key(r) not in added), key=lambda r: (r["path"], r["start"]["line"]))
+          if not rows:
+              print(f"No high-severity code findings already on {base}.")
+              raise SystemExit(0)
+          cell = lambda t: " ".join(str(t).split()).replace("|", "\\|")[:160]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
+              out.write(f"### Code findings already on {base} (not blocking)\n\n")
+              out.write(f"{len(rows)} high-severity Semgrep findings. This pull request didn't add them, so they don't fail the check. Fix them in their own pull request.\n\n")
+              out.write("| Rule | File | Finding |\n|---|---|---|\n")
+              for r in rows[:50]:
+                  out.write(f"| {cell(r['check_id'].split('.')[-1])} | {cell(r['path'])}:{r['start']['line']} | {cell(r['extra']['message'])} |\n")
+              if len(rows) > 50:
+                  out.write(f"\nAnd {len(rows) - 50} more.\n")
+          print(f"::warning title=Existing code findings::{len(rows)} high-severity code findings are already on {base}. Not blocking. They're listed in the run summary.")
 
   # Known vulnerabilities in dependencies. OSV-Scanner scans the base and the pull request and fails only
   # on vulnerabilities the pull request adds; Dependabot handles the ones already there. Results go to
@@ -104,6 +149,73 @@ jobs:
         --recursive
         --allow-no-lockfiles
         ./
+
+  # Report only: high and critical vulnerabilities (CVSS 7 or more) in both of the dependency scans
+  # above, so already on the base branch and still there after the pull request. It reads the results
+  # the scans uploaded, so nothing is scanned twice, and it never fails the run. Dependabot alerts
+  # track these. A merge queue run has no base scan to compare with, so it reports nothing there.
+  dependencies-existing:
+    name: dependencies already on the base (report only)
+    needs: dependencies
+    if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: "*-json-results"
+          path: ${{ runner.temp }}/osv
+          merge-multiple: true
+      - name: List vulnerabilities already on the base branch
+        shell: python3 {0}
+        run: |
+          import json, os
+          tmp, base = os.path.join(os.environ["RUNNER_TEMP"], "osv"), os.environ["BASE_NAME"]
+          def groups(name):
+              try:
+                  data = json.load(open(os.path.join(tmp, name)))
+              except (OSError, ValueError):
+                  return None
+              found = {}
+              for result in data.get("results") or []:
+                  source = result["source"]["path"].removeprefix("/github/workspace/")
+                  for pkg in result.get("packages") or []:
+                      p = pkg["package"]
+                      for g in pkg.get("groups") or []:
+                          try:
+                              score = float(g.get("max_severity") or 0)
+                          except ValueError:
+                              score = 0
+                          if score < 7:
+                              continue
+                          ids = sorted(g["ids"])
+                          names = sorted(set(g.get("aliases", []) + ids))
+                          advisory = next((i for i in names if i.startswith("CVE-")), next((i for i in names if i.startswith("GHSA-")), ids[0]))
+                          row = found.setdefault((p["ecosystem"], p["name"], ids[0]), {"score": score, "package": f"{p['name']} {p['version']}", "advisory": advisory, "files": set()})
+                          row["files"].add(source)
+              return found
+          old, new = groups("old-results.json"), groups("new-results.json")
+          if old is None or new is None:
+              print("A dependency scan didn't finish, so there's nothing to report.")
+              raise SystemExit(0)
+          rows = sorted((v for k, v in new.items() if k in old), key=lambda v: (-v["score"], v["package"]))
+          if not rows:
+              print(f"No high or critical dependency vulnerabilities already on {base}.")
+              raise SystemExit(0)
+          critical = sum(v["score"] >= 9 for v in rows)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
+              out.write(f"### Dependency vulnerabilities already on {base} (not blocking)\n\n")
+              out.write(f"{critical} critical and {len(rows) - critical} high. This pull request didn't add them, so they don't fail the check. Dependabot alerts track them. Fix them in their own pull request.\n\n")
+              out.write("| Severity | Package | Advisory | File |\n|---|---|---|---|\n")
+              for v in rows[:50]:
+                  severity = "Critical" if v["score"] >= 9 else "High"
+                  out.write(f"| {severity} ({v['score']:g}) | {v['package']} | {v['advisory']} | {', '.join(sorted(v['files']))} |\n")
+              if len(rows) > 50:
+                  out.write(f"\nAnd {len(rows) - 50} more.\n")
+          print(f"::warning title=Existing dependency vulnerabilities::{critical} critical and {len(rows) - critical} high-severity dependency vulnerabilities are already on {base}. Not blocking. They're listed in the run summary.")
 
   # GitHub Actions security (script injection, risky triggers, over-broad permissions, unpinned
   # actions). zizmor audits the base and pull request versions of each workflow or action file the
@@ -134,11 +246,19 @@ jobs:
             '.github/workflows/*.yml' '.github/workflows/*.yaml' ':(glob)**/action.yml' ':(glob)**/action.yaml' | tr '\n' ' ')
           echo "files=${files}" >> "$GITHUB_OUTPUT"
           echo "Changed: ${files:-none}"
+      # Installed even when no workflow file changed, for the report of existing issues below. The jq
+      # filter writes one line per high-severity finding: rule, file, YAML route and message (the
+      # match key), then the line number for the report.
       - name: Install zizmor
-        if: steps.changed.outputs.files != ''
         run: |
           python3 -m venv "$RUNNER_TEMP/zizmor"
           "$RUNNER_TEMP/zizmor/bin/pip" install --quiet --disable-pip-version-check zizmor==1.32.0
+          cat > "$RUNNER_TEMP/findings.jq" <<'EOF'
+          .[] | select(.determinations.severity == "High") | . as $f
+          | ([$f.locations[] | select(.symbolic.kind == "Primary")] + $f.locations)[0] as $l
+          | [$f.ident, $l.symbolic.key.Local.verbatim_path, ($l.symbolic.route | tostring),
+             $l.symbolic.annotation, ($l.concrete.location.start_point.row + 1 | tostring)] | @tsv
+          EOF
       - name: zizmor, failing only on findings the pull request adds
         if: steps.changed.outputs.files != ''
         shell: bash
@@ -158,14 +278,7 @@ jobs:
               base_files+=("$f")
             fi
           done
-          # One line per high-severity finding: rule, file, YAML route and message (the match key),
-          # then the line number for the report.
-          findings() {
-            jq -r '.[] | select(.determinations.severity == "High") | . as $f
-              | ([$f.locations[] | select(.symbolic.kind == "Primary")] + $f.locations)[0] as $l
-              | [$f.ident, $l.symbolic.key.Local.verbatim_path, ($l.symbolic.route | tostring),
-                 $l.symbolic.annotation, ($l.concrete.location.start_point.row + 1 | tostring)] | @tsv'
-          }
+          findings() { jq -r -f "$RUNNER_TEMP/findings.jq"; }
           "$zizmor" --format json --min-severity high --no-exit-codes "${files[@]}" | findings > "$RUNNER_TEMP/head.tsv"
           : > "$RUNNER_TEMP/base.tsv"
           if [ "${#base_files[@]}" -gt 0 ]; then
@@ -181,6 +294,35 @@ jobs:
             exit 1
           fi
           echo "No new high-severity GitHub Actions issues."
+      # Report only: high-severity issues in all of the repo's workflow and action files, less any the
+      # pull request adds (the step above fails on those).
+      - name: List issues already on the base branch (report only)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mapfile -t files < <(git ls-files '.github/workflows/*.yml' '.github/workflows/*.yaml' ':(glob)**/action.yml' ':(glob)**/action.yaml')
+          if [ "${#files[@]}" -eq 0 ]; then echo "No workflow or action files."; exit 0; fi
+          "$RUNNER_TEMP/zizmor/bin/zizmor" --format json --min-severity high --no-exit-codes "${files[@]}" \
+            | jq -r -f "$RUNNER_TEMP/findings.jq" | sort -u > "$RUNNER_TEMP/all.tsv"
+          touch "$RUNNER_TEMP/new.tsv"
+          cut -f1-4 "$RUNNER_TEMP/new.tsv" | sort -u > "$RUNNER_TEMP/new.keys"
+          awk -F'\t' 'NR == FNR { added[$0] = 1; next } !added[$1 FS $2 FS $3 FS $4]' "$RUNNER_TEMP/new.keys" "$RUNNER_TEMP/all.tsv" > "$RUNNER_TEMP/existing.tsv"
+          count=$(wc -l < "$RUNNER_TEMP/existing.tsv" | tr -d ' ')
+          if [ "$count" -eq 0 ]; then echo "No high-severity GitHub Actions issues already on ${BASE_NAME}."; exit 0; fi
+          {
+            echo "### GitHub Actions issues already on ${BASE_NAME} (not blocking)"
+            echo
+            echo "${count} high-severity zizmor findings. This pull request didn't add them, so they don't fail the check. Fix them in their own pull request. Each rule is explained at https://docs.zizmor.sh/audits/"
+            echo
+            echo "| Rule | File | Finding |"
+            echo "|---|---|---|"
+            head -50 "$RUNNER_TEMP/existing.tsv" | awk -F'\t' '{ gsub(/\|/, "\\|", $4); printf "| %s | %s:%s | %s |\n", $1, $2, $5, $4 }'
+            if [ "$count" -gt 50 ]; then echo; echo "And $((count - 50)) more."; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning title=Existing GitHub Actions issues::${count} high-severity GitHub Actions issues are already on ${BASE_NAME}. Not blocking. They're listed in the run summary."
 
   # High and critical misconfigurations in infrastructure files: Terraform, Dockerfiles, Kubernetes,
   # Helm, CloudFormation and ARM templates (Trivy does not read Bicep). Trivy scans the base and the
@@ -240,3 +382,25 @@ jobs:
             exit 1
           fi
           echo "No new high or critical infrastructure misconfigurations."
+      # Report only: misconfigurations in both scans above, so already on the base branch and still
+      # there after the pull request.
+      - name: List misconfigurations already on the base branch (report only)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          if [ ! -s "$RUNNER_TEMP/head.txt" ] || [ ! -f "$RUNNER_TEMP/base.txt" ]; then echo "Nothing to report."; exit 0; fi
+          comm -12 "$RUNNER_TEMP/head.txt" "$RUNNER_TEMP/base.txt" > "$RUNNER_TEMP/existing.txt"
+          count=$(wc -l < "$RUNNER_TEMP/existing.txt" | tr -d ' ')
+          if [ "$count" -eq 0 ]; then echo "No high or critical misconfigurations already on ${BASE_NAME}."; exit 0; fi
+          critical=$(awk -F'\t' '$3 == "CRITICAL"' "$RUNNER_TEMP/existing.txt" | wc -l | tr -d ' ')
+          {
+            echo "### Infrastructure misconfigurations already on ${BASE_NAME} (not blocking)"
+            echo
+            echo "${critical} critical and $((count - critical)) high. This pull request didn't add them, so they don't fail the check. Fix them in their own pull request."
+            echo
+            echo "| Severity | Check | File | Finding |"
+            echo "|---|---|---|---|"
+            sort -t$'\t' -k3,3 "$RUNNER_TEMP/existing.txt" | head -50 | awk -F'\t' '{ gsub(/\|/, "\\|", $4); printf "| %s | %s | %s | %s |\n", $3, $2, $1, $4 }'
+            if [ "$count" -gt 50 ]; then echo; echo "And $((count - 50)) more."; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning title=Existing infrastructure misconfigurations::${critical} critical and $((count - critical)) high infrastructure misconfigurations are already on ${BASE_NAME}. Not blocking. They're listed in the run summary."

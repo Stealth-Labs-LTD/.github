@@ -31,6 +31,15 @@ It works on any stack with no set-up, and it **blocks only on problems a pull re
 | `workflows` | zizmor | a new high-severity issue in a workflow or action file it adds or changes (issues already in the file don't count) |
 | `infrastructure` | Trivy | a high or critical misconfiguration in Terraform, Dockerfiles, Kubernetes, Helm, CloudFormation or ARM (not Bicep) |
 
+**Issues already on the base branch are still shown, without blocking.** The high and critical issues that the pull request leaves in place are listed in the run summary, with a warning on the check:
+
+- dependencies: CVSS 7 or more, read from the same OSV-Scanner results;
+- code;
+- workflow and action files, across the whole repo;
+- infrastructure.
+
+Fix them in their own pull request; Dependabot alerts track the dependency ones. Existing secrets aren't listed, because finding them takes a scan of the whole history.
+
 **Tuning a repo**, in the repo's own files so changes are reviewed: `nosemgrep` comments for Semgrep, `.trivyignore` for Trivy, `osv-scanner.toml` for OSV-Scanner. Results are in the job logs and annotations: private repos can't show them in the Security tab without GitHub Code Security.
 
 **Trying it in a repo before the ruleset applies:**
