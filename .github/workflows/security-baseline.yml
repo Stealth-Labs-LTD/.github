@@ -285,7 +285,9 @@ jobs:
             (cd "$base_dir" && "$zizmor" --format json --min-severity high --no-exit-codes "${base_files[@]}") | findings > "$RUNNER_TEMP/base.tsv"
           fi
           cut -f1-4 "$RUNNER_TEMP/base.tsv" | sort -u > "$RUNNER_TEMP/base.keys"
-          awk -F'\t' 'NR == FNR { seen[$0] = 1; next } !seen[$1 FS $2 FS $3 FS $4]' "$RUNNER_TEMP/base.keys" "$RUNNER_TEMP/head.tsv" > "$RUNNER_TEMP/new.tsv"
+          # FILENAME, not NR == FNR: when the base has no findings, base.keys is empty and NR == FNR
+          # holds for every head line too, which would mark every finding as already in the base.
+          awk -F'\t' 'FILENAME == ARGV[1] { seen[$0] = 1; next } !seen[$1 FS $2 FS $3 FS $4]' "$RUNNER_TEMP/base.keys" "$RUNNER_TEMP/head.tsv" > "$RUNNER_TEMP/new.tsv"
           echo "High-severity findings already in the base, ignored: $(( $(wc -l < "$RUNNER_TEMP/head.tsv") - $(wc -l < "$RUNNER_TEMP/new.tsv") ))"
           if [ -s "$RUNNER_TEMP/new.tsv" ]; then
             echo "::error::This pull request adds high-severity GitHub Actions issues (rule, file:line, finding):"
@@ -309,7 +311,7 @@ jobs:
             | jq -r -f "$RUNNER_TEMP/findings.jq" | sort -u > "$RUNNER_TEMP/all.tsv"
           touch "$RUNNER_TEMP/new.tsv"
           cut -f1-4 "$RUNNER_TEMP/new.tsv" | sort -u > "$RUNNER_TEMP/new.keys"
-          awk -F'\t' 'NR == FNR { added[$0] = 1; next } !added[$1 FS $2 FS $3 FS $4]' "$RUNNER_TEMP/new.keys" "$RUNNER_TEMP/all.tsv" > "$RUNNER_TEMP/existing.tsv"
+          awk -F'\t' 'FILENAME == ARGV[1] { added[$0] = 1; next } !added[$1 FS $2 FS $3 FS $4]' "$RUNNER_TEMP/new.keys" "$RUNNER_TEMP/all.tsv" > "$RUNNER_TEMP/existing.tsv"
           count=$(wc -l < "$RUNNER_TEMP/existing.tsv" | tr -d ' ')
           if [ "$count" -eq 0 ]; then echo "No high-severity GitHub Actions issues already on ${BASE_NAME}."; exit 0; fi
           {
