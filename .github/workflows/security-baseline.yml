@@ -63,7 +63,7 @@ jobs:
           extra_args: --results=verified,unknown
 
   # Semgrep's default rules, high severity only, and only the findings the pull request adds. Mark a
-  # checked false positive with a `nosemgrep` comment.
+  # checked false positive with a `nosemgrep` comment. Workflow files are left to the workflows job.
   code:
     name: code
     runs-on: ubuntu-latest
@@ -83,7 +83,7 @@ jobs:
           echo "Comparing with ${base}"
       - name: Semgrep
         run: |
-          semgrep scan --config p/default --severity ERROR --baseline-commit "$BASE" --error --metrics off
+          semgrep scan --config p/default --severity ERROR --baseline-commit "$BASE" --error --metrics off --exclude .github/workflows
 
   # Known vulnerabilities in dependencies. OSV-Scanner scans the base and the pull request and fails only
   # on vulnerabilities the pull request adds; Dependabot handles the ones already there. Results go to
@@ -106,8 +106,10 @@ jobs:
         ./
 
   # GitHub Actions security (script injection, risky triggers, over-broad permissions, unpinned
-  # actions). Only workflow and action files the pull request adds or changes are audited, high
-  # severity only.
+  # actions). zizmor audits the base and pull request versions of each workflow or action file the
+  # pull request adds or changes, and the job fails only on high-severity findings that are new.
+  # Findings are matched on rule, file, YAML location and message, not line number, so an edit
+  # elsewhere in a file doesn't turn the file's existing findings into new ones.
   workflows:
     name: workflows
     runs-on: ubuntu-latest
@@ -132,15 +134,53 @@ jobs:
             '.github/workflows/*.yml' '.github/workflows/*.yaml' ':(glob)**/action.yml' ':(glob)**/action.yaml' | tr '\n' ' ')
           echo "files=${files}" >> "$GITHUB_OUTPUT"
           echo "Changed: ${files:-none}"
-      - name: zizmor
+      - name: Install zizmor
         if: steps.changed.outputs.files != ''
-        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
-        with:
-          inputs: ${{ steps.changed.outputs.files }}
-          version: 1.32.0
-          min-severity: high
-          advanced-security: false
-          fail-on-no-inputs: false
+        run: |
+          python3 -m venv "$RUNNER_TEMP/zizmor"
+          "$RUNNER_TEMP/zizmor/bin/pip" install --quiet --disable-pip-version-check zizmor==1.32.0
+      - name: zizmor, failing only on findings the pull request adds
+        if: steps.changed.outputs.files != ''
+        shell: bash
+        env:
+          FILES: ${{ steps.changed.outputs.files }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          zizmor="$RUNNER_TEMP/zizmor/bin/zizmor"
+          base_dir="$RUNNER_TEMP/zizmor-base"
+          read -r -a files <<< "$FILES"
+          # The base version of each changed file that existed before, at the same relative path.
+          base_files=()
+          for f in "${files[@]}"; do
+            if git cat-file -e "$BASE:$f" 2>/dev/null; then
+              mkdir -p "$base_dir/$(dirname "$f")"
+              git show "$BASE:$f" > "$base_dir/$f"
+              base_files+=("$f")
+            fi
+          done
+          # One line per high-severity finding: rule, file, YAML route and message (the match key),
+          # then the line number for the report.
+          findings() {
+            jq -r '.[] | select(.determinations.severity == "High") | . as $f
+              | ([$f.locations[] | select(.symbolic.kind == "Primary")] + $f.locations)[0] as $l
+              | [$f.ident, $l.symbolic.key.Local.verbatim_path, ($l.symbolic.route | tostring),
+                 $l.symbolic.annotation, ($l.concrete.location.start_point.row + 1 | tostring)] | @tsv'
+          }
+          "$zizmor" --format json --min-severity high --no-exit-codes "${files[@]}" | findings > "$RUNNER_TEMP/head.tsv"
+          : > "$RUNNER_TEMP/base.tsv"
+          if [ "${#base_files[@]}" -gt 0 ]; then
+            (cd "$base_dir" && "$zizmor" --format json --min-severity high --no-exit-codes "${base_files[@]}") | findings > "$RUNNER_TEMP/base.tsv"
+          fi
+          cut -f1-4 "$RUNNER_TEMP/base.tsv" | sort -u > "$RUNNER_TEMP/base.keys"
+          awk -F'\t' 'NR == FNR { seen[$0] = 1; next } !seen[$1 FS $2 FS $3 FS $4]' "$RUNNER_TEMP/base.keys" "$RUNNER_TEMP/head.tsv" > "$RUNNER_TEMP/new.tsv"
+          echo "High-severity findings already in the base, ignored: $(( $(wc -l < "$RUNNER_TEMP/head.tsv") - $(wc -l < "$RUNNER_TEMP/new.tsv") ))"
+          if [ -s "$RUNNER_TEMP/new.tsv" ]; then
+            echo "::error::This pull request adds high-severity GitHub Actions issues (rule, file:line, finding):"
+            awk -F'\t' '{ printf "  %s  %s:%s  %s\n", $1, $2, $5, $4 }' "$RUNNER_TEMP/new.tsv"
+            echo "Each rule is explained at https://docs.zizmor.sh/audits/"
+            exit 1
+          fi
+          echo "No new high-severity GitHub Actions issues."
 
   # High and critical misconfigurations in infrastructure files: Terraform, Dockerfiles, Kubernetes,
   # Helm, CloudFormation and ARM templates (Trivy does not read Bicep). Trivy scans the base and the
