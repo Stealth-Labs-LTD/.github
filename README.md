@@ -28,7 +28,7 @@ It works on any stack with no set-up, and it **blocks only on problems a pull re
 | `secrets` | TruffleHog | a live (or unverifiable) secret in its commits |
 | `code` | Semgrep, default rules | a high-severity finding |
 | `dependencies` | OSV-Scanner | a dependency with a known vulnerability |
-| `workflows` | zizmor | a high-severity issue in a workflow or action file it adds or changes |
+| `workflows` | zizmor | a new high-severity issue in a workflow or action file it adds or changes (issues already in the file don't count) |
 | `infrastructure` | Trivy | a high or critical misconfiguration in Terraform, Dockerfiles, Kubernetes, Helm, CloudFormation or ARM (not Bicep) |
 
 **Tuning a repo**, in the repo's own files so changes are reviewed: `nosemgrep` comments for Semgrep, `.trivyignore` for Trivy, `osv-scanner.toml` for OSV-Scanner. Results are in the job logs and annotations: private repos can't show them in the Security tab without GitHub Code Security.
