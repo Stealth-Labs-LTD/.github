@@ -1,6 +1,6 @@
 # Security baseline: the checks every pull request must pass, required org-wide by the
-# `security-baseline` org ruleset. It can also be called with workflow_call, to try it in a repo
-# before the ruleset applies there.
+# `security-baseline` org rulesets in both orgs. How it behaves: docs/security-baseline.md. It can
+# also be called with workflow_call, to try it in a repo or test a change from a branch.
 #
 # It has to work on any stack with no set-up, and it blocks only on problems a pull request adds:
 # every job compares the pull request with its base, so existing issues never turn an unrelated pull
@@ -15,8 +15,11 @@
 # Every action is pinned to a commit and the Semgrep image to a digest, each with its version in a
 # comment. The tools some actions fetch (TruffleHog's and OSV-Scanner's images, zizmor and the Trivy
 # binary) are pinned by version only. Tags can be moved: in March 2026, 76 of the 77 trivy-action tags
-# were hijacked to steal CI secrets (CVE-2026-33634). Bump pins deliberately, and update the ruleset's
-# pinned commit to match.
+# were hijacked to steal CI secrets (CVE-2026-33634). Bump pins deliberately.
+#
+# The rulesets run this file from `main`, not a pinned commit, so a merge here applies to every repo's
+# next pull request at once. Try a change from a branch in a test repo first, including a pull request
+# that should fail.
 name: Security baseline
 
 on:
