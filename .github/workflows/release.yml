@@ -4,6 +4,10 @@ name: Release
 # caller chooses where the image goes (the "Internal release" template chains
 # deploy-cloud-run.yml, which targets Stealth Labs' own stealthlabs-dev).
 #
+# Every action is pinned to a commit, with its version in a comment, and Trivy to a version. In
+# March 2026, 76 of the 77 trivy-action tags were hijacked to steal CI secrets (CVE-2026-33634), and
+# this job holds GHCR push and signing rights. Bump pins deliberately.
+#
 # Do not rename or move this file. Caller repos reference it by path
 # (`.github/workflows/release.yml@main`), so a rename breaks their next tag.
 
@@ -34,13 +38,13 @@ jobs:
     env:
       REGISTRY: ghcr.io
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Lowercase image name
         run: echo "IMAGE_NAME=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -54,8 +58,9 @@ jobs:
             -f ${{ inputs.dockerfile }} .
 
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: v0.70.0
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           severity: ${{ inputs.trivy-severity }}
           exit-code: 1
@@ -66,7 +71,7 @@ jobs:
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
 
       - name: Sign image
         run: |
@@ -74,7 +79,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
       - name: Generate SBOM
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           output-file: sbom.spdx.json
