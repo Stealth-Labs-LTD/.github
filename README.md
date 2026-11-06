@@ -15,47 +15,30 @@ Org-wide defaults and reusable workflows for all Stealth Labs repositories.
 | `pull_request_template.md` | Org-wide default PR template (repos inherit this automatically) |
 | `.github/workflows/` | Reusable workflows called by individual repos |
 | `workflow-templates/` | Starter workflows shown in the GitHub UI (Actions > New workflow) |
+| `docs/` | How the shared workflows behave: [security baseline](docs/security-baseline.md) |
 | `profile/` | The public org page at github.com/Stealth-Labs-LTD. Banners are rendered by `profile/assets/src/render.sh`. The members-only page lives in `.github-private` |
 
 ## Required on every pull request: security-baseline.yml
 
-`.github/workflows/security-baseline.yml` is the security floor for the org. The `security-baseline` org ruleset requires it on pull requests to the default branch, so repos don't add it themselves and can't switch it off. Repos add their own, stricter checks alongside it.
+`.github/workflows/security-baseline.yml` is the security check every pull request has to pass. Org rulesets in both orgs run it automatically on pull requests to the default branch, so repos don't add it, and nobody can switch it off or bypass it, admins included.
 
-It works on any stack with no set-up, and it **blocks only on problems a pull request adds**: every job compares the pull request with its base, so existing issues never turn an unrelated pull request red.
+It asks one question: **did this pull request make anything worse?** It fails only on problems the pull request **adds**. Problems already on the base branch are shown as warnings and don't block.
 
 | Check | Tool | Fails when the pull request adds |
 |-------|------|----------------------------------|
 | `secrets` | TruffleHog | a live (or unverifiable) secret in its commits |
 | `code` | Semgrep, default rules | a high-severity finding |
 | `dependencies` | OSV-Scanner | a dependency with a known vulnerability |
-| `workflows` | zizmor | a new high-severity issue in a workflow or action file it adds or changes (issues already in the file don't count) |
+| `workflows` | zizmor | a high-severity issue in a workflow or action file it adds or changes |
 | `infrastructure` | Trivy | a high or critical misconfiguration in Terraform, Dockerfiles, Kubernetes, Helm, CloudFormation or ARM (not Bicep) |
 
-**Issues already on the base branch are still shown, without blocking.** The high and critical issues that the pull request leaves in place are listed in the run summary, with a warning on the check:
+**[docs/security-baseline.md](docs/security-baseline.md)** has the detail:
 
-- dependencies: CVSS 7 or more, read from the same OSV-Scanner results;
-- code;
-- workflow and action files, across the whole repo;
-- infrastructure.
-
-Fix them in their own pull request; Dependabot alerts track the dependency ones. Existing secrets aren't listed, because finding them takes a scan of the whole history.
-
-**Tuning a repo**, in the repo's own files so changes are reviewed: `nosemgrep` comments for Semgrep, `.trivyignore` for Trivy, `osv-scanner.toml` for OSV-Scanner. Results are in the job logs and annotations: private repos can't show them in the Security tab without GitHub Code Security.
-
-**Trying it in a repo before the ruleset applies:**
-
-```yaml
-on: pull_request
-permissions:
-  actions: read
-  contents: read
-  security-events: write
-jobs:
-  baseline:
-    uses: Stealth-Labs-LTD/.github/.github/workflows/security-baseline.yml@<commit sha>
-```
-
-**Changing it:** every action is pinned to a commit and the Semgrep image to a digest; the tools some actions fetch (TruffleHog's and OSV-Scanner's images, zizmor and the Trivy binary) are pinned by version. Tags can be moved, as the March 2026 trivy-action hijack showed. The ruleset also pins this file to a commit, so a change takes effect only when the ruleset is updated to the new commit. The ruleset runs in Evaluate mode first, so its Rule Insights show what would fail before it blocks anything.
+- where it blocks and where it only reports;
+- what you'll see on a pull request;
+- how to suppress a false positive;
+- what to do about "Expected — Waiting for workflow to run";
+- how changes go live: from `main`, so test them from a branch first.
 
 ## Reusable workflows
 
@@ -63,7 +46,12 @@ These live in `.github/workflows/` and are called via `workflow_call` from each 
 
 ### security-scans.yml
 
-Runs Semgrep SAST, TruffleHog secret scanning, and Trivy scans (dependencies, infra config, container image). Language-agnostic. This is an opt-in, stricter set that scans the whole repo; the required floor is `security-baseline.yml` above.
+The whole-repo scan for **releases** and scheduled scans: Semgrep, TruffleHog, and Trivy on dependencies, infrastructure config and the container image. Unlike the pull request baseline, it fails on **any** high or critical issue in the repo, not just new ones. So call it before a release builds or deploys, and keep it out of pull request checks, where it would fail on issues the pull request didn't add.
+
+Two current limits:
+
+- The infrastructure scan runs only when an `infra/` folder exists.
+- The image scan builds only `./Dockerfile`.
 
 ```yaml
 jobs:
@@ -71,6 +59,9 @@ jobs:
     uses: Stealth-Labs-LTD/.github/.github/workflows/security-scans.yml@main
     with:
       semgrep-config: p/python p/security-audit p/secrets  # or: p/typescript p/nodejs p/security-audit p/secrets
+  release:
+    needs: [security]   # nothing is released until the scan passes
+    uses: Stealth-Labs-LTD/.github/.github/workflows/release.yml@main
 ```
 
 **Inputs:**
