@@ -1,5 +1,11 @@
 name: Deploy to Cloud Run
 
+# For proofs of concept, demos, PR previews and internal tools that hold public
+# or internal data only. The defaults (shared stealthlabs-dev project, shared
+# GCP_SA_KEY, one org-wide OPENROUTER_API_KEY) suit that and nothing more.
+# Customer work ships into the customer's environment; HQ apps run on Azure.
+# See the README ("deploy-cloud-run.yml") for what to harden as an app grows.
+
 on:
   workflow_call:
     inputs:
@@ -24,7 +30,7 @@ on:
         type: string
         default: "8080"
       public:
-        description: "Disable IAP and make service publicly accessible (for customer-facing apps)"
+        description: "Disable IAP and make the service publicly accessible (for example a demo shared with a customer)"
         required: false
         type: boolean
         default: false
