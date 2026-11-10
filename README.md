@@ -100,6 +100,22 @@ jobs:
 
 Builds and deploys a container to Google Cloud Run. Used for both ephemeral PR previews and persistent release demos.
 
+**What it's for:** proofs of concept, demos, PR previews and internal tools that hold public or internal data only. The defaults are built for that and nothing more. Every service goes into the shared `stealthlabs-dev` project and deploys with the shared `GCP_SA_KEY`. It also gets the org's single `OPENROUTER_API_KEY` as a plain env var, so spend isn't split by app and a leaked key has to be rotated for everyone.
+
+It isn't the route for:
+
+- **Customer work.** That ships into the customer's own environment through its own pipeline. Client data never goes on Stealth Labs systems, and the Responsible AI Policy allows OpenRouter for public and internal data only.
+- **HQ apps.** Those run on Azure.
+
+Tag deploys use a GitHub environment called `production` (see [GitHub Deployments + environment auto-classification](#github-deployments--environment-auto-classification)). That's the name of the release target, not a sign the service is production-grade.
+
+If a proof of concept becomes something people rely on, harden it before it grows further:
+
+- Move it to its own project with keyless login, its own runtime service account and secrets from Secret Manager (`secret_env`). See [Deploying to another project](#deploying-to-another-project).
+- Add required reviewers to its `production` environment.
+- Pin the workflow to a commit instead of `@main`.
+- Give it its own OpenRouter key with a spending limit. A repo secret named `OPENROUTER_API_KEY` takes precedence over the org secret of the same name, so the caller workflow doesn't change.
+
 ```yaml
 jobs:
   preview:
@@ -124,7 +140,7 @@ jobs:
 | `region` | `europe-west2` | GCP region |
 | `dockerfile` | `./Dockerfile` | Path to Dockerfile |
 | `port` | `8080` | Container port |
-| `public` | `false` | Set `true` to disable IAP (customer-facing apps). Default is IAP-protected — only `@stealthlabs.uk` Google accounts can access. |
+| `public` | `false` | Set `true` to disable IAP, for example for a demo shared with a customer. Default is IAP-protected — only `@stealthlabs.uk` Google accounts can access. |
 | `app_secret_prefix` | `APP_` | Repo secrets starting with this prefix are auto-injected as env vars (prefix stripped). |
 | `runtime_service_account` | (unset) | Cloud Run runtime SA email. Set when the app authenticates to GCP APIs at runtime. See "Runtime service account" below. |
 | `project_id` | `stealthlabs-dev` | GCP project to deploy into. See "Deploying to another project" below. |
@@ -310,7 +326,7 @@ jobs:
 | `trivy-severity` | `HIGH,CRITICAL` | Trivy severity threshold |
 | `dockerfile` | `./Dockerfile` | Path to Dockerfile |
 
-The caller must set `permissions: { contents: read, packages: write, id-token: write }` for GHCR push and Cosign signing.
+The caller must set `permissions: { contents: write, packages: write, id-token: write, actions: read }`: `contents: write` attaches the SBOM to the GitHub release, `packages: write` pushes to GHCR, `id-token: write` signs with Cosign and `actions: read` lets the SBOM step fetch its own artifact. The **Internal release** template sets these already.
 
 ## Workflow templates
 

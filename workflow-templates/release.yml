@@ -1,9 +1,14 @@
 name: Internal release
 
 # Internal release only. A v* tag builds the image and deploys it to Stealth
-# Labs' own Cloud Run (the stealthlabs-dev project, hard-coded in
-# deploy-cloud-run.yml). Nothing here deploys to a customer's environment;
-# customer deliveries need their own pipeline.
+# Labs' own Cloud Run (the stealthlabs-dev project by default). It's for proofs
+# of concept, demos and internal tools that hold public or internal data only.
+# Nothing here deploys to a customer's environment: customer deliveries need
+# their own pipeline, and HQ apps run on Azure.
+#
+# Every service gets the org's shared OPENROUTER_API_KEY. To give this app its
+# own key and spending limit, set a repo secret with the same name: it takes
+# precedence over the org secret.
 
 on:
   push:
