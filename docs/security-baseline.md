@@ -47,7 +47,7 @@ A repo with no lockfiles, workflow changes or infrastructure files simply passes
 
 The warnings come from extra report steps, including a job called `dependencies already on the base (report only)`. These steps can't fail the run.
 
-The `workflows` check also warns when a pull request adds a line that gives Azure a client secret (`creds:`, `AZURE_CREDENTIALS` or `client-secret:`). Azure deploys should sign in keyless instead, for example with the shared `deploy-azure-container-app.yml`. It only warns for now, while the repos that still use secrets move over; it will become blocking later.
+The `workflows` check also warns when a pull request adds a line that gives Azure a client secret (`creds:`, `AZURE_CREDENTIALS` or `client-secret:`). Azure deploys should sign in keyless instead: `azure/login` with `client-id`, `tenant-id` and `subscription-id`, the workflow permission `id-token: write`, and a federated credential on the deploy identity that trusts the repo. It only warns for now, while the repos that still use secrets move over; it will become blocking later.
 
 ## What you'll see on a pull request
 

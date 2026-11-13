@@ -322,12 +322,12 @@ jobs:
           level=warning
           if [ "$BLOCK" = "true" ]; then level=error; fi
           while IFS=$'\t' read -r f l; do
-            echo "::${level} file=${f},line=${l},title=Azure sign-in with a client secret::Sign in to Azure keyless instead: azure/login with client-id, tenant-id and subscription-id and id-token: write, or the shared deploy-azure-container-app.yml. No client secret or AZURE_CREDENTIALS."
+            echo "::${level} file=${f},line=${l},title=Azure sign-in with a client secret::Sign in to Azure keyless instead: azure/login with client-id, tenant-id and subscription-id, plus id-token: write, and a federated credential on the deploy identity. No client secret or AZURE_CREDENTIALS."
           done < "$RUNNER_TEMP/azure-secrets.tsv"
           {
             echo "### Azure sign-in with a client secret"
             echo
-            echo "This pull request adds ${count} line(s) that give Azure a client secret. Sign in keyless instead: see the shared deploy-azure-container-app.yml workflow in Stealth-Labs-LTD/.github."
+            echo "This pull request adds ${count} line(s) that give Azure a client secret. Sign in keyless instead: azure/login with client-id, tenant-id and subscription-id, plus id-token: write, and a federated credential on the deploy identity trusting this repo."
             echo
             awk -F'\t' '{ printf "- %s:%s\n", $1, $2 }' "$RUNNER_TEMP/azure-secrets.tsv"
           } >> "$GITHUB_STEP_SUMMARY"

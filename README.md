@@ -277,66 +277,6 @@ jobs:
 - A new `inactive` status is POSTed to the latest preview Deployment for the PR's head SHA. After this, the URL link still 404s (Cloud Run service is gone), but the PR's deployment chip in the UI goes grey and queries like `?state=success` skip it.
 - If you need the URL link itself to disappear from the GitHub UI, you'd have to DELETE the deployment record entirely — we don't, because losing history isn't worth the cosmetic gain.
 
-### deploy-azure-container-app.yml
-
-Builds the repo's image, pushes it to Azure Container Registry, and points an existing Azure Container App at it. It signs in **keyless**: GitHub gives the run a short-lived token naming the repo and environment, and Azure accepts it only if the app's deploy identity trusts exactly that. There's no client secret to store, leak or rotate, and the workflow has no input for one.
-
-```yaml
-permissions:
-  contents: read
-  id-token: write   # required: lets the run ask GitHub for its sign-in token
-
-jobs:
-  deploy:
-    uses: Stealth-Labs-LTD/.github/.github/workflows/deploy-azure-container-app.yml@main
-    with:
-      environment: staging
-      client_id: ${{ vars.AZURE_CLIENT_ID }}
-      subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      resource_group: rg-my-app-staging
-      container_app: my-app-staging
-      registry: myappregistry
-```
-
-**Inputs:**
-| Input | Default | Description |
-|-------|---------|-------------|
-| `environment` | (required) | GitHub environment the run deploys as, such as `staging` or `production`. The deploy identity must trust this environment. |
-| `client_id` | (required) | Client ID of the app's deploy identity. Not a secret: keep it in the repo variable `AZURE_CLIENT_ID`. |
-| `subscription_id` | (required) | Azure subscription that holds the app. Not a secret: keep it in the repo variable `AZURE_SUBSCRIPTION_ID`. |
-| `resource_group` | (required) | Resource group of the Container App |
-| `container_app` | (required) | Existing Container App to update |
-| `registry` | (required) | Azure Container Registry name, without `.azurecr.io` |
-| `image_name` | repo name | Repository name for the image |
-| `dockerfile` | `./Dockerfile` | Path to the Dockerfile |
-| `context` | `.` | Docker build context |
-| `tenant_id` | Stealth Labs tenant | Entra tenant |
-
-**Outputs:** `image` (the deployed image reference) and `url` (the app's URL, if it has ingress).
-
-#### Setting up the deploy identity (once per repo)
-
-One user-assigned managed identity per repo, trusted by each GitHub environment it deploys from. Managed identities can't hold a secret, so keyless is the only way to sign in as one.
-
-```bash
-REPO=Stealth-Labs-LTD/my-app; RG=rg-my-app-staging; ID=id-my-app-deploy
-
-az identity create -g "$RG" -n "$ID"
-# One federated credential per GitHub environment that deploys:
-az identity federated-credential create -g "$RG" --identity-name "$ID" -n github-staging \
-  --issuer https://token.actions.githubusercontent.com \
-  --subject "repo:${REPO}:environment:staging" \
-  --audiences api://AzureADTokenExchange
-az identity show -g "$RG" -n "$ID" --query clientId -o tsv   # → repo variable AZURE_CLIENT_ID
-```
-
-Then a platform admin grants the identity **Stealth Labs Engineer on the app's resource group** (and on each other environment's resource group it deploys to). That covers updating the app and pushing to a registry in the same group. Finally, in the repo:
-
-- create the GitHub environments (`staging`, `production`); add required reviewers on `production` if a second person should approve prod deploys
-- add the repo variables `AZURE_CLIENT_ID` and `AZURE_SUBSCRIPTION_ID`.
-
-The Container App should pull its images with its own managed identity (`az containerapp registry set --identity system` plus AcrPull on the registry), so the registry's admin account can stay off.
-
 > ⚠️ **The calling workflow MUST grant `deployments: write`.** The reusable workflow can't escalate beyond the caller's `GITHUB_TOKEN`. Modern GitHub org/repo defaults grant only `contents: read` + `packages: read`, so without this block the `gh api` call to mark the deployment inactive will silently 403 (Cloud Run + Artifact Registry teardown still succeeds). The `workflow-templates/pr-cleanup.yml` template includes the block by default; existing caller workflows need a one-time edit. Add to your `pr-cleanup.yml`:
 >
 > ```yaml
@@ -382,7 +322,6 @@ Starter workflows available in the GitHub UI under **Actions > New workflow** fo
 | PR checks (Node/TypeScript) | Security scans + ESLint/tsc/npm test + Cloud Run preview |
 | PR cleanup | Tears down ephemeral Cloud Run service on PR close |
 | Internal release (Stealth Labs Cloud Run) | On a `v*` tag: build, scan, sign, push to GHCR, then deploy to Stealth Labs' own Cloud Run (`stealthlabs-dev`). Internal only, never deploys to a customer environment |
-| Deploy to Azure (keyless) | On a push to the default branch: build, push to Azure Container Registry and update an Azure Container App, signing in without a client secret |
 
 ## Starting a new project
 
