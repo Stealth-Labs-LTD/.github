@@ -1,0 +1,5 @@
+{
+  "name": "Deploy to Azure (keyless)",
+  "description": "Builds the image, pushes it to Azure Container Registry and updates an Azure Container App, signing in with OpenID Connect instead of a client secret",
+  "categories": ["Deployment"]
+}

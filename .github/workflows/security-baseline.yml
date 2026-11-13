@@ -299,6 +299,39 @@ jobs:
             exit 1
           fi
           echo "No new high-severity GitHub Actions issues."
+      # Azure deploys sign in keyless (OpenID Connect), never with a client secret. This flags lines
+      # the pull request adds to a workflow or action file that hand Azure a secret: `creds:` (as on
+      # azure/login), an AZURE_CREDENTIALS secret or a `client-secret:`. It only warns for now, while
+      # the repos that still use secrets move to keyless; set BLOCK to "true" to make it fail.
+      - name: Azure sign-in with a client secret
+        if: steps.changed.outputs.files != ''
+        shell: bash
+        env:
+          FILES: ${{ steps.changed.outputs.files }}
+          BLOCK: "false"
+        run: |
+          read -r -a files <<< "$FILES"
+          # Added lines only (-U0), with the file and line number each lands on.
+          git diff -U0 "$BASE" HEAD -- "${files[@]}" | awk '
+            /^\+\+\+ / { file = substr($0, 7); next }
+            /^@@/ { split($3, a, ","); line = substr(a[1], 2) + 0; next }
+            /^\+/ { t = tolower($0); if (t ~ /azure_credentials|client-secret:|^\+[[:space:]-]*creds:/) printf "%s\t%d\n", file, line; line++ }
+          ' > "$RUNNER_TEMP/azure-secrets.tsv"
+          count=$(wc -l < "$RUNNER_TEMP/azure-secrets.tsv" | tr -d ' ')
+          if [ "$count" -eq 0 ]; then echo "No Azure client secrets added."; exit 0; fi
+          level=warning
+          if [ "$BLOCK" = "true" ]; then level=error; fi
+          while IFS=$'\t' read -r f l; do
+            echo "::${level} file=${f},line=${l},title=Azure sign-in with a client secret::Sign in to Azure keyless instead: azure/login with client-id, tenant-id and subscription-id and id-token: write, or the shared deploy-azure-container-app.yml. No client secret or AZURE_CREDENTIALS."
+          done < "$RUNNER_TEMP/azure-secrets.tsv"
+          {
+            echo "### Azure sign-in with a client secret"
+            echo
+            echo "This pull request adds ${count} line(s) that give Azure a client secret. Sign in keyless instead: see the shared deploy-azure-container-app.yml workflow in Stealth-Labs-LTD/.github."
+            echo
+            awk -F'\t' '{ printf "- %s:%s\n", $1, $2 }' "$RUNNER_TEMP/azure-secrets.tsv"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$BLOCK" = "true" ]; then exit 1; fi
       # Report only: high-severity issues in all of the repo's workflow and action files, less any the
       # pull request adds (the step above fails on those).
       - name: List issues already on the base branch (report only)
