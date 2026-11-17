@@ -333,7 +333,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$BLOCK" = "true" ]; then exit 1; fi
       # Report only: high-severity issues in all of the repo's workflow and action files, less any the
-      # pull request adds (the step above fails on those).
+      # pull request adds (the zizmor step above fails on those).
       - name: List issues already on the base branch (report only)
         if: ${{ !cancelled() }}
         continue-on-error: true
