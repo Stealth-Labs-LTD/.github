@@ -63,6 +63,11 @@ on:
         required: false
         type: string
         default: ""
+      owner:
+        description: "Who owns the app, for the owner label: a @stealthlabs.uk email, first_last, or a team (stealthlabs, engineering or leadership). When unset, the service keeps its current owner label, or gets stealthlabs on its first deploy."
+        required: false
+        type: string
+        default: ""
     secrets:
       GCP_SA_KEY:
         description: "Service account key JSON for stealthlabs-dev (org secret). Not needed with keyless login."
@@ -172,7 +177,28 @@ jobs:
           DEPLOY_PORT: ${{ inputs.port }}
           PUBLIC: ${{ inputs.public }}
           RUNTIME_SA: ${{ inputs.runtime_service_account }}
+          OWNER: ${{ inputs.owner }}
+          IS_PR: ${{ github.event_name == 'pull_request' }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
+          # Labels every service carries, so cost and ownership can be traced
+          # (Stealth Labs GCP policy). Label values allow only lower-case
+          # letters, digits, _ and -, up to 63 characters.
+          label() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -e 's/@.*//' -e 's/[^a-z0-9_-]/_/g' | cut -c1-63; }
+          if [ "$IS_PR" = "true" ]; then LABEL_ENV=dev; else LABEL_ENV=prod; fi
+          # Tier is the repo's `tier` custom property, the same one GitHub rulesets use.
+          TIER=$(gh api "repos/$GITHUB_REPOSITORY/properties/values" --jq '.[] | select(.property_name == "tier") | .value' 2>/dev/null || true)
+          if [ -z "$TIER" ]; then
+            echo "::warning::This repo has no tier custom property, so the service has no tier label. Ask a platform admin to set it."
+          fi
+          if [ -z "$OWNER" ]; then
+            OWNER=$(gcloud run services describe "$SERVICE_NAME" --region="$DEPLOY_REGION" --project="$PROJECT_ID" --format='value(metadata.labels.owner)' 2>/dev/null || true)
+          fi
+          LABELS="application=$(label "$REPO_NAME"),environment=$LABEL_ENV,owner=$(label "${OWNER:-stealthlabs}")"
+          if [ -n "$TIER" ]; then LABELS="$LABELS,tier=$(label "$TIER")"; fi
+          echo "labels=$LABELS" >> "$GITHUB_OUTPUT"
+
           # Build env var list: release metadata first (tag-triggered deploys only),
           # then OpenRouter, then any APP_*-prefixed caller secrets (opt-in via
           # the all_secrets input). Uses ^|^ as the --set-env-vars delimiter so
@@ -203,7 +229,7 @@ jobs:
           fi
 
           # Optional flags go in an array so no value is ever split on spaces.
-          ARGS=()
+          ARGS=("--update-labels=$LABELS")
           if [ -n "$ENV_VARS_LIST" ]; then
             ARGS+=("--set-env-vars=^|^$ENV_VARS_LIST")
           fi
@@ -264,6 +290,7 @@ jobs:
           LOGIN: ${{ inputs.workload_identity_provider != '' && 'Keyless (Workload Identity)' || 'Service account key' }}
           ACCESS: ${{ inputs.public && 'Public (no IAP)' || 'IAP protected (team only)' }}
           RUNTIME_SA: ${{ inputs.runtime_service_account || 'default Compute SA' }}
+          DEPLOY_LABELS: ${{ steps.deploy.outputs.labels }}
         run: |
           {
             echo "## Deployed to Cloud Run"
@@ -279,4 +306,5 @@ jobs:
             echo "| **Image** | \`$SERVICE_NAME:$GITHUB_SHA\` |"
             echo "| **Auth** | $ACCESS |"
             echo "| **Runtime SA** | $RUNTIME_SA |"
+            echo "| **Labels** | \`$DEPLOY_LABELS\` |"
           } >> "$GITHUB_STEP_SUMMARY"
