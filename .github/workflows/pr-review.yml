@@ -7,7 +7,7 @@ on:
         description: "Claude model for the review"
         required: false
         type: string
-        default: "claude-opus-4-8"
+        default: "claude-opus-5-5"
       persona:
         description: "Review persona (a skill in the pr-review plugin, e.g. stealth-labs)"
         required: false
