@@ -132,6 +132,37 @@ jobs:
               if len(rows) > 50:
                   out.write(f"\nAnd {len(rows) - 50} more.\n")
           print(f"::warning title=Existing code findings::{len(rows)} high-severity code findings are already on {base}. Not blocking. They're listed in the run summary.")
+      # Report only, for security reporting (Control Room): what this check found, as metadata only (tool,
+      # rule, severity, file, line, and whether the pull request added it). Never the matched content.
+      - name: Record findings (metadata only)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: python3 {0}
+        run: |
+          import json, os
+          tmp = os.environ["RUNNER_TEMP"]
+          def save(job, rows):
+              os.makedirs(os.path.join(tmp, "findings"), exist_ok=True)
+              with open(os.path.join(tmp, "findings", f"{job}.json"), "w") as out:
+                  json.dump({"job": job, "findings": rows}, out)
+          def load(name):
+              try:
+                  return json.load(open(os.path.join(tmp, name)))["results"]
+              except (OSError, ValueError, KeyError):
+                  return []
+          key = lambda r: (r["check_id"], r["path"], r["start"]["line"])
+          added = {key(r) for r in load("new.json")}
+          found = load("all.json") or load("new.json")
+          save("code", [{"tool": "semgrep", "rule": r["check_id"], "severity": "high", "file": r["path"],
+                         "line": r["start"]["line"], "status": "added" if key(r) in added else "existing"} for r in found])
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        with:
+          name: baseline-findings-code
+          path: ${{ runner.temp }}/findings/code.json
+          retention-days: 7
+          if-no-files-found: ignore
 
   # Known vulnerabilities in dependencies. OSV-Scanner scans the base and the pull request and fails only
   # on vulnerabilities the pull request adds; Dependabot handles the ones already there. Results go to
@@ -219,6 +250,51 @@ jobs:
               if len(rows) > 50:
                   out.write(f"\nAnd {len(rows) - 50} more.\n")
           print(f"::warning title=Existing dependency vulnerabilities::{critical} critical and {len(rows) - critical} high-severity dependency vulnerabilities are already on {base}. Not blocking. They're listed in the run summary.")
+      # Report only, for security reporting (Control Room): what this check found, as metadata only (tool,
+      # rule, severity, file, line, and whether the pull request added it). Never the matched content.
+      - name: Record findings (metadata only)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: python3 {0}
+        run: |
+          import json, os
+          tmp = os.environ["RUNNER_TEMP"]
+          osv = os.path.join(tmp, "osv")
+          def save(job, rows):
+              os.makedirs(os.path.join(tmp, "findings"), exist_ok=True)
+              with open(os.path.join(tmp, "findings", f"{job}.json"), "w") as out:
+                  json.dump({"job": job, "findings": rows}, out)
+          def groups(name):
+              try:
+                  data = json.load(open(os.path.join(osv, name)))
+              except (OSError, ValueError):
+                  return {}
+              found = {}
+              for result in data.get("results") or []:
+                  source = result["source"]["path"].removeprefix("/github/workspace/")
+                  for pkg in result.get("packages") or []:
+                      for g in pkg.get("groups") or []:
+                          try:
+                              score = float(g.get("max_severity") or 0)
+                          except ValueError:
+                              score = 0
+                          if score < 7:
+                              continue
+                          names = sorted(set(g.get("aliases", []) + g["ids"]))
+                          advisory = next((i for i in names if i.startswith("CVE-")), next((i for i in names if i.startswith("GHSA-")), sorted(g["ids"])[0]))
+                          found[(pkg["package"]["ecosystem"], pkg["package"]["name"], advisory, source)] = score
+              return found
+          old, new = groups("old-results.json"), groups("new-results.json")
+          save("dependencies", [{"tool": "osv-scanner", "rule": k[2], "severity": "critical" if s >= 9 else "high",
+                                 "file": k[3], "status": "existing" if k in old else "added"} for k, s in new.items()])
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        with:
+          name: baseline-findings-dependencies
+          path: ${{ runner.temp }}/findings/dependencies.json
+          retention-days: 7
+          if-no-files-found: ignore
 
   # GitHub Actions security (script injection, risky triggers, over-broad permissions, unpinned
   # actions). zizmor audits the base and pull request versions of each workflow or action file the
@@ -361,6 +437,36 @@ jobs:
             if [ "$count" -gt 50 ]; then echo; echo "And $((count - 50)) more."; fi
           } >> "$GITHUB_STEP_SUMMARY"
           echo "::warning title=Existing GitHub Actions issues::${count} high-severity GitHub Actions issues are already on ${BASE_NAME}. Not blocking. They're listed in the run summary."
+      # Report only, for security reporting (Control Room): what this check found, as metadata only (tool,
+      # rule, severity, file, line, and whether the pull request added it). Never the matched content.
+      - name: Record findings (metadata only)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: python3 {0}
+        run: |
+          import json, os
+          tmp = os.environ["RUNNER_TEMP"]
+          def save(job, rows):
+              os.makedirs(os.path.join(tmp, "findings"), exist_ok=True)
+              with open(os.path.join(tmp, "findings", f"{job}.json"), "w") as out:
+                  json.dump({"job": job, "findings": rows}, out)
+          def rows(name):
+              try:
+                  return [line.rstrip("\n").split("\t") for line in open(os.path.join(tmp, name)) if line.strip()]
+              except OSError:
+                  return []
+          added = {tuple(r[:4]) for r in rows("new.tsv")}
+          save("workflows", [{"tool": "zizmor", "rule": r[0], "severity": "high", "file": r[1],
+                              "line": int(r[4]) if len(r) > 4 and r[4].isdigit() else None,
+                              "status": "added" if tuple(r[:4]) in added else "existing"} for r in rows("head.tsv")])
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        with:
+          name: baseline-findings-workflows
+          path: ${{ runner.temp }}/findings/workflows.json
+          retention-days: 7
+          if-no-files-found: ignore
 
   # High and critical misconfigurations in infrastructure files: Terraform, Dockerfiles, Kubernetes,
   # Helm, CloudFormation and ARM templates (Trivy does not read Bicep). Trivy scans the base and the
@@ -442,3 +548,32 @@ jobs:
             if [ "$count" -gt 50 ]; then echo; echo "And $((count - 50)) more."; fi
           } >> "$GITHUB_STEP_SUMMARY"
           echo "::warning title=Existing infrastructure misconfigurations::${critical} critical and $((count - critical)) high infrastructure misconfigurations are already on ${BASE_NAME}. Not blocking. They're listed in the run summary."
+      # Report only, for security reporting (Control Room): what this check found, as metadata only (tool,
+      # rule, severity, file, line, and whether the pull request added it). Never the matched content.
+      - name: Record findings (metadata only)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: python3 {0}
+        run: |
+          import json, os
+          tmp = os.environ["RUNNER_TEMP"]
+          def save(job, rows):
+              os.makedirs(os.path.join(tmp, "findings"), exist_ok=True)
+              with open(os.path.join(tmp, "findings", f"{job}.json"), "w") as out:
+                  json.dump({"job": job, "findings": rows}, out)
+          def rows(name):
+              try:
+                  return {tuple(line.rstrip("\n").split("\t")[:3]) for line in open(os.path.join(tmp, name)) if line.strip()}
+              except OSError:
+                  return set()
+          added = rows("new.txt")
+          save("infrastructure", [{"tool": "trivy", "rule": r[1], "severity": r[2].lower(), "file": r[0],
+                                   "status": "added" if r in added else "existing"} for r in sorted(rows("head.txt"))])
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        with:
+          name: baseline-findings-infrastructure
+          path: ${{ runner.temp }}/findings/infrastructure.json
+          retention-days: 7
+          if-no-files-found: ignore
