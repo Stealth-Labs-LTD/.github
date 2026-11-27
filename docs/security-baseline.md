@@ -114,6 +114,9 @@ holds metadata only: the tool, rule, severity, file, line, and whether the pull 
 finding or it was already on the base branch. It never holds the matched code or content. These
 steps can't fail a check.
 
+Only private repos save the artifact. Anyone signed in to GitHub can download a public repo's
+artifacts, and the file says where known issues are, so public repos skip it.
+
 The secrets check saves nothing: its result (pass or fail) is already on the pull request, and
 TruffleHog's output includes the secret itself, so it isn't captured anywhere.
 

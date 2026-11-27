@@ -155,8 +155,10 @@ jobs:
           found = load("all.json") or load("new.json")
           save("code", [{"tool": "semgrep", "rule": r["check_id"], "severity": "high", "file": r["path"],
                          "line": r["start"]["line"], "status": "added" if key(r) in added else "existing"} for r in found])
+      # Private repos only: anyone signed in to GitHub can download a public repo's artifacts, and this file
+      # says where known issues are.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event.repository.private }}
         continue-on-error: true
         with:
           name: baseline-findings-code
@@ -287,8 +289,10 @@ jobs:
           old, new = groups("old-results.json"), groups("new-results.json")
           save("dependencies", [{"tool": "osv-scanner", "rule": k[2], "severity": "critical" if s >= 9 else "high",
                                  "file": k[3], "status": "existing" if k in old else "added"} for k, s in new.items()])
+      # Private repos only: anyone signed in to GitHub can download a public repo's artifacts, and this file
+      # says where known issues are.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event.repository.private }}
         continue-on-error: true
         with:
           name: baseline-findings-dependencies
@@ -459,8 +463,10 @@ jobs:
           save("workflows", [{"tool": "zizmor", "rule": r[0], "severity": "high", "file": r[1],
                               "line": int(r[4]) if len(r) > 4 and r[4].isdigit() else None,
                               "status": "added" if tuple(r[:4]) in added else "existing"} for r in rows("head.tsv")])
+      # Private repos only: anyone signed in to GitHub can download a public repo's artifacts, and this file
+      # says where known issues are.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event.repository.private }}
         continue-on-error: true
         with:
           name: baseline-findings-workflows
@@ -569,8 +575,10 @@ jobs:
           added = rows("new.txt")
           save("infrastructure", [{"tool": "trivy", "rule": r[1], "severity": r[2].lower(), "file": r[0],
                                    "status": "added" if r in added else "existing"} for r in sorted(rows("head.txt"))])
+      # Private repos only: anyone signed in to GitHub can download a public repo's artifacts, and this file
+      # says where known issues are.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event.repository.private }}
         continue-on-error: true
         with:
           name: baseline-findings-infrastructure
