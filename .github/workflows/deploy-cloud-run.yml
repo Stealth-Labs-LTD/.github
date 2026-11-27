@@ -74,6 +74,11 @@ on:
         required: false
         type: string
         default: ""
+      image:
+        description: "Deploy this already-built image instead of building from source: release.yml's `image` output, a digest reference (ghcr.io/owner/repo@sha256:…). It's copied into Artifact Registry unchanged and deployed by digest, so what runs is exactly what was scanned and signed. Leave empty to build from source (PR previews, deploys without a release)."
+        required: false
+        type: string
+        default: ""
     secrets:
       GCP_SA_KEY:
         description: "Service account key JSON for stealthlabs-dev (org secret). Not needed with keyless login."
@@ -161,6 +166,7 @@ jobs:
         run: gcloud auth configure-docker europe-west2-docker.pkg.dev --quiet
 
       - name: Build Docker image
+        if: ${{ inputs.image == '' }}
         env:
           DOCKERFILE: ${{ inputs.dockerfile }}
         run: |
@@ -169,8 +175,30 @@ jobs:
             -f "$DOCKERFILE" .
 
       - name: Push Docker image
+        if: ${{ inputs.image == '' }}
         run: |
           docker push "$REGISTRY/$SERVICE_NAME:$GITHUB_SHA"
+          digest=$(docker inspect --format='{{range .RepoDigests}}{{println .}}{{end}}' "$REGISTRY/$SERVICE_NAME:$GITHUB_SHA" | grep "^$REGISTRY/$SERVICE_NAME@sha256:" | head -1)
+          echo "DEPLOY_IMAGE=${digest:-$REGISTRY/$SERVICE_NAME:$GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      # The released image, not a rebuild: copied byte-for-byte (same digest) from GHCR into
+      # Artifact Registry, where Cloud Run pulls from. skopeo ships on GitHub's Ubuntu runners.
+      - name: Copy the released image into Artifact Registry
+        if: ${{ inputs.image != '' }}
+        env:
+          IMAGE: ${{ inputs.image }}
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          case "$IMAGE" in
+            *@sha256:*) ;;
+            *) echo "::error::image must be a digest reference (…@sha256:…), e.g. release.yml's image output"; exit 1 ;;
+          esac
+          digest="${IMAGE##*@}"
+          echo "$GHCR_TOKEN" | skopeo login ghcr.io -u "$GHCR_USER" --password-stdin
+          gcloud auth print-access-token | skopeo login europe-west2-docker.pkg.dev -u oauth2accesstoken --password-stdin
+          skopeo copy --preserve-digests "docker://$IMAGE" "docker://$REGISTRY/$SERVICE_NAME:$GITHUB_SHA"
+          echo "DEPLOY_IMAGE=$REGISTRY/$SERVICE_NAME@$digest" >> "$GITHUB_ENV"
 
       - name: Deploy to Cloud Run
         id: deploy
@@ -259,7 +287,7 @@ jobs:
           fi
 
           URL=$(gcloud run deploy "$SERVICE_NAME" \
-            --image="$REGISTRY/$SERVICE_NAME:$GITHUB_SHA" \
+            --image="$DEPLOY_IMAGE" \
             --region="$DEPLOY_REGION" \
             --port="$DEPLOY_PORT" \
             --platform=managed \

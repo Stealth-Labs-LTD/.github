@@ -100,6 +100,8 @@ jobs:
 
 Builds and deploys a container to Google Cloud Run. Used for both ephemeral PR previews and persistent release demos.
 
+**After a release, it deploys the released image instead of building another.** Pass `release.yml`'s `image` output to the `image` input: the deploy copies that exact image (same digest) from GHCR into Artifact Registry and deploys it by digest, so what runs is what was scanned, signed and given an SBOM. Without `image` it builds from source, as PR previews and deploys without a release need.
+
 **What it's for:** proofs of concept, demos, PR previews and internal tools that hold public or internal data only. The defaults are built for that and nothing more. Every service goes into the shared `stealthlabs-dev` project and deploys with the shared `GCP_SA_KEY`. It also gets the org's single `OPENROUTER_API_KEY` as a plain env var, so spend isn't split by app and a leaked key has to be rotated for everyone.
 
 It isn't the route for:
@@ -149,6 +151,7 @@ jobs:
 | `service_account` | (unset) | Keyless login: the deploy service account to impersonate. |
 | `secret_env` | (unset) | Env vars read from Secret Manager in `project_id`, as `NAME=SECRET:VERSION` pairs separated by commas or new lines. Keeps them out of the service's plain config. The runtime SA needs Secret Accessor on each. Don't also set the same name as an `APP_` secret. |
 | `owner` | current label, else `stealthlabs` | Who owns the app, for the `owner` label: a `@stealthlabs.uk` email, `first_last`, or a team (`stealthlabs`, `engineering`, `leadership`). |
+| `image` | empty (build from source) | Deploy this already-built image: `release.yml`'s `image` output, a digest reference (`ghcr.io/owner/repo@sha256:…`). Copied into Artifact Registry unchanged and deployed by digest. |
 
 **Labels:** every deploy sets four labels on the service, which Stealth Labs GCP policy requires:
 
@@ -313,7 +316,9 @@ jobs:
 
 ### release.yml
 
-Builds a container image, scans with Trivy, pushes to GHCR with semver + SHA tags, signs with Cosign, generates an SBOM with Syft, and attaches it to the image. Language-agnostic — uses whatever Dockerfile is in the repo.
+Builds a container image, scans with Trivy, pushes to GHCR with semver + SHA tags, signs with Cosign, generates an SBOM with Syft, and attaches it to the image. Signing and the SBOM name the image by its digest. Language-agnostic — uses whatever Dockerfile is in the repo.
+
+**Output:** `image` — the pushed image by digest (`ghcr.io/owner/repo@sha256:…`), the exact image that was scanned and signed. Pass it to `deploy-cloud-run.yml`'s `image` input so the deploy runs that image rather than building a second one.
 
 This workflow deploys nothing on its own. Paired with `deploy-cloud-run.yml` (as below, and in the **Internal release** template) it is an internal release to Stealth Labs' own Cloud Run in `stealthlabs-dev`, not a customer deployment. Callers reference this file by path, so don't rename it.
 
@@ -324,6 +329,8 @@ jobs:
   deploy:
     needs: [release]
     uses: Stealth-Labs-LTD/.github/.github/workflows/deploy-cloud-run.yml@main
+    with:
+      image: ${{ needs.release.outputs.image }}   # the scanned, signed image — no second build
     secrets:
       GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -347,7 +354,7 @@ Starter workflows available in the GitHub UI under **Actions > New workflow** fo
 | PR checks (Python) | Security scans + Ruff/pytest + Cloud Run preview |
 | PR checks (Node/TypeScript) | Security scans + ESLint/tsc/npm test + Cloud Run preview |
 | PR cleanup | Tears down ephemeral Cloud Run service on PR close |
-| Internal release (Stealth Labs Cloud Run) | On a `v*` tag: build, scan, sign, push to GHCR, then deploy to Stealth Labs' own Cloud Run (`stealthlabs-dev`). Internal only, never deploys to a customer environment |
+| Internal release (Stealth Labs Cloud Run) | On a `v*` tag: build, scan, sign, push to GHCR, then deploy that same image to Stealth Labs' own Cloud Run (`stealthlabs-dev`). Internal only, never deploys to a customer environment |
 
 ## Starting a new project
 
