@@ -183,6 +183,9 @@ jobs:
 
       # The released image, not a rebuild: copied byte-for-byte (same digest) from GHCR into
       # Artifact Registry, where Cloud Run pulls from. skopeo ships on GitHub's Ubuntu runners.
+      # --all: release.yml pushes an image index (the image plus its build attestation), and
+      # without --all skopeo copies only the platform image, whose digest differs, so the
+      # digest below would not exist in Artifact Registry.
       - name: Copy the released image into Artifact Registry
         if: ${{ inputs.image != '' }}
         env:
@@ -197,7 +200,11 @@ jobs:
           digest="${IMAGE##*@}"
           echo "$GHCR_TOKEN" | skopeo login ghcr.io -u "$GHCR_USER" --password-stdin
           gcloud auth print-access-token | skopeo login europe-west2-docker.pkg.dev -u oauth2accesstoken --password-stdin
-          skopeo copy --preserve-digests "docker://$IMAGE" "docker://$REGISTRY/$SERVICE_NAME:$GITHUB_SHA"
+          skopeo copy --all --preserve-digests "docker://$IMAGE" "docker://$REGISTRY/$SERVICE_NAME:$GITHUB_SHA"
+          if ! skopeo inspect --raw "docker://$REGISTRY/$SERVICE_NAME@$digest" > /dev/null; then
+            echo "::error::$digest is not in Artifact Registry after the copy, so the deploy would not run the released image"
+            exit 1
+          fi
           echo "DEPLOY_IMAGE=$REGISTRY/$SERVICE_NAME@$digest" >> "$GITHUB_ENV"
 
       - name: Deploy to Cloud Run
