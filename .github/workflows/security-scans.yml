@@ -24,6 +24,13 @@ on:
         required: false
         type: string
         default: ./infra
+      scan-image:
+        # Set false when release.yml builds the image: it scans the image it pushes, so
+        # scanning here too would build and scan the same image twice.
+        description: "Build ./Dockerfile and scan the image. Set false alongside release.yml, which scans the image it pushes."
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -102,6 +109,7 @@ jobs:
 
   trivy-image:
     name: trivy-image
+    if: inputs.scan-image
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

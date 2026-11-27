@@ -8,10 +8,9 @@ permissions:
   contents: read
 
 jobs:
-  security:
-    uses: Stealth-Labs-LTD/.github/.github/workflows/security-scans.yml@main
-    with:
-      semgrep-config: p/python p/security-audit p/secrets
+  # No security job: the org security baseline runs on every pull request through the org
+  # ruleset, and release.yml scans the image before pushing it. security-scans.yml is for
+  # releases and schedules; here it would repeat the baseline.
 
   lint-and-test:
     uses: Stealth-Labs-LTD/.github/.github/workflows/lint-and-test.yml@main
