@@ -106,7 +106,7 @@ Builds and deploys a container to Google Cloud Run. Used for both ephemeral PR p
 
 It isn't the route for:
 
-- **Customer work.** That ships into the customer's own environment through its own pipeline. Client data never goes on Stealth Labs systems, and the Responsible AI Policy allows OpenRouter for public and internal data only.
+- **Customer work.** That ships into the customer's own environment through its own pipeline. Customer data never goes on Stealth Labs systems, and the Responsible AI Policy allows OpenRouter for public and internal data only.
 - **HQ apps.** Those run on Azure.
 
 Tag deploys use a GitHub environment called `production` (see [GitHub Deployments + environment auto-classification](#github-deployments--environment-auto-classification)). That's the name of the release target, not a sign the service is production-grade.
