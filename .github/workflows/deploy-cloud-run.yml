@@ -75,7 +75,7 @@ on:
         type: string
         default: ""
       image:
-        description: "Deploy this already-built image instead of building from source: release.yml's `image` output, a digest reference (ghcr.io/owner/repo@sha256:…). It's copied into Artifact Registry unchanged and deployed by digest, so what runs is exactly what was scanned and signed. Leave empty to build from source (PR previews, deploys without a release)."
+        description: "Deploy this already-built image instead of building from source: release.yml's `image` output, a digest reference (ghcr.io/owner/repo@sha256:…). It's copied into Artifact Registry unchanged and deployed by digest, so what runs is exactly what was scanned and signed. Leave empty to build from source (PR previews, deploys without a release). The caller must grant packages: read, to pull the image from GHCR."
         required: false
         type: string
         default: ""

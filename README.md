@@ -151,7 +151,7 @@ jobs:
 | `service_account` | (unset) | Keyless login: the deploy service account to impersonate. |
 | `secret_env` | (unset) | Env vars read from Secret Manager in `project_id`, as `NAME=SECRET:VERSION` pairs separated by commas or new lines. Keeps them out of the service's plain config. The runtime SA needs Secret Accessor on each. Don't also set the same name as an `APP_` secret. |
 | `owner` | current label, else `stealthlabs` | Who owns the app, for the `owner` label: a `@stealthlabs.uk` email, `first_last`, or a team (`stealthlabs`, `engineering`, `leadership`). |
-| `image` | empty (build from source) | Deploy this already-built image: `release.yml`'s `image` output, a digest reference (`ghcr.io/owner/repo@sha256:…`). Copied into Artifact Registry unchanged and deployed by digest. |
+| `image` | empty (build from source) | Deploy this already-built image: `release.yml`'s `image` output, a digest reference (`ghcr.io/owner/repo@sha256:…`). Copied into Artifact Registry unchanged and deployed by digest. The caller must grant `packages: read` to pull it from GHCR (the **Internal release** template does). |
 
 **Labels:** every deploy sets four labels on the service, which Stealth Labs GCP policy requires:
 
