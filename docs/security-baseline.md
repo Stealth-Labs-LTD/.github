@@ -105,3 +105,20 @@ jobs:
   baseline:
     uses: Stealth-Labs-LTD/.github/.github/workflows/security-baseline.yml@<branch or commit sha>
 ```
+
+## Findings for security reporting
+
+The code, dependencies, workflows and infrastructure checks each end with a report-only step that
+saves what the check found as a small artifact, `baseline-findings-<check>`, kept for 7 days. It
+holds metadata only: the tool, rule, severity, file, line, and whether the pull request added the
+finding or it was already on the base branch. It never holds the matched code or content. These
+steps can't fail a check.
+
+Only private repos save the artifact. Anyone signed in to GitHub can download a public repo's
+artifacts, and the file says where known issues are, so public repos skip it.
+
+The secrets check saves nothing: its result (pass or fail) is already on the pull request, and
+TruffleHog's output includes the secret itself, so it isn't captured anywhere.
+
+Security reporting reads these artifacts to show what the baseline finds across repos, how often
+it blocks a pull request, and how often the issue is fixed before merge.
