@@ -59,6 +59,7 @@ jobs:
     uses: Stealth-Labs-LTD/.github/.github/workflows/security-scans.yml@main
     with:
       semgrep-config: p/python p/security-audit p/secrets  # or: p/typescript p/nodejs p/security-audit p/secrets
+      scan-image: false   # release.yml scans the image it pushes; don't build and scan it twice
   release:
     needs: [security]   # nothing is released until the scan passes
     uses: Stealth-Labs-LTD/.github/.github/workflows/release.yml@main
@@ -70,6 +71,7 @@ jobs:
 | `semgrep-config` | `p/security-audit p/secrets` | Semgrep rule sets (space-separated) |
 | `trivy-severity` | `HIGH,CRITICAL` | Trivy severity threshold |
 | `infra-path` | `./infra` | Path to infrastructure config for Trivy config scan |
+| `scan-image` | `true` | Build `./Dockerfile` and scan the image. Set `false` alongside `release.yml`, which scans the image it pushes |
 
 ### lint-and-test.yml
 
@@ -351,8 +353,8 @@ Starter workflows available in the GitHub UI under **Actions > New workflow** fo
 
 | Template | Description |
 |----------|-------------|
-| PR checks (Python) | Security scans + Ruff/pytest + Cloud Run preview |
-| PR checks (Node/TypeScript) | Security scans + ESLint/tsc/npm test + Cloud Run preview |
+| PR checks (Python) | Ruff/pytest + Cloud Run preview. Security comes from the org baseline, not this workflow |
+| PR checks (Node/TypeScript) | ESLint/tsc/npm test + Cloud Run preview. Security comes from the org baseline, not this workflow |
 | PR cleanup | Tears down ephemeral Cloud Run service on PR close |
 | Internal release (Stealth Labs Cloud Run) | On a `v*` tag: build, scan, sign, push to GHCR, then deploy that same image to Stealth Labs' own Cloud Run (`stealthlabs-dev`). Internal only, never deploys to a customer environment |
 
